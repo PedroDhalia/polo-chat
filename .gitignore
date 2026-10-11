@@ -1,0 +1,17 @@
+node_modules/
+.next/
+.next-test/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# banco local (SQLite) e variáveis
+prisma/*.db
+prisma/*.db-journal
+prisma/verify.db*
+# variáveis locais: .env e .env*.local nunca vão para o Git (use .env.example como modelo)
+.env
+.env*.local
+
+.DS_Store
+npm-debug.log*

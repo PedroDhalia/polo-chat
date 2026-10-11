@@ -1,0 +1,809 @@
+// Plátano Ops — modelo de dados do MVP.
+//
+// Princípios:
+// - Polo Trial é a fonte de dados clínicos/protocolares. Campos marcados como
+//   "snapshot da fonte" são apenas espelhados aqui (nunca calculados).
+// - Todo dado é separado por estudo (studyId) para permitir controle de acesso.
+// - ExternalReference mapeia entidades locais para IDs de sistemas externos,
+//   sem acoplar o modelo a nenhuma API específica.
+// - Valores monetários em centavos (Int) para portabilidade SQLite → PostgreSQL.
+//   Para migrar: troque o provider para "postgresql" e ajuste DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  DIRETOR
+  COORDENADOR
+  ASSISTENTE
+  FINANCEIRO
+  QUALIDADE
+}
+
+enum StudyStatus {
+  EM_ATIVACAO
+  RECRUTAMENTO_ATIVO
+  RECRUTAMENTO_PAUSADO
+  ACOMPANHAMENTO
+  ENCERRADO
+}
+
+enum ParticipantStatus {
+  NOVO
+  EM_CONTATO
+  PRE_TRIAGEM
+  AGUARDANDO_AGENDAMENTO
+  AGENDADO
+  INCLUIDO
+  INELEGIVEL
+  RETIRADO
+}
+
+enum RecruitmentChannel {
+  BANCO_PROPRIO
+  INSTAGRAM
+  FACEBOOK
+  LANDING_PAGE
+  INDICACAO
+  ASSOCIACAO
+  MIDIA_TRADICIONAL
+}
+
+enum RecruitmentOutcome {
+  EM_ANDAMENTO
+  INCLUIDO
+  NAO_ELEGIVEL
+  DESISTENCIA
+  SEM_RETORNO
+}
+
+enum VisitCategory {
+  TRIAGEM
+  INCLUSAO
+  SEGUIMENTO
+  ENCERRAMENTO
+  NAO_PROGRAMADA
+}
+
+enum VisitStatus {
+  AGUARDANDO_CONFIRMACAO
+  CONFIRMADO
+  REAGENDAMENTO_SOLICITADO
+  REALIZADO
+  FALTOU
+  CANCELADO
+}
+
+enum CommunicationChannel {
+  WHATSAPP
+  TELEFONE
+  EMAIL
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+  INTERNAL_NOTE
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  RECEIVED
+  FAILED
+}
+
+enum ConversationStatus {
+  AGUARDANDO_RESPOSTA
+  REQUER_ATENCAO
+  RESPONDIDA
+  RESOLVIDA
+}
+
+enum TemplateCategory {
+  PRIMEIRO_CONTATO
+  SEGUNDO_CONTATO
+  LEMBRETE_VISITA
+  CONFIRMACAO
+  REAGENDAMENTO
+  SOLICITACAO_CONTATO
+  DUVIDA_FREQUENTE
+}
+
+enum TemplateApprovalStatus {
+  APROVADO
+  EM_REVISAO
+  RASCUNHO
+  REVOGADO
+}
+
+enum TaskPriority {
+  ALTA
+  MEDIA
+  BAIXA
+}
+
+enum TaskStatus {
+  ABERTA
+  EM_ANDAMENTO
+  CONCLUIDA
+  CANCELADA
+}
+
+enum TaskSource {
+  MANUAL
+  AUTOMACAO
+  POLO_TRIAL
+  COMUNICACAO
+  FORMULARIO
+  FINANCEIRO
+}
+
+enum ReimbursementStatus {
+  PENDENTE
+  EM_CONCILIACAO
+  PAGO
+}
+
+enum FinancialCategory {
+  TAXA_ATIVACAO
+  VISITA
+  PROCEDIMENTO
+  OVERHEAD
+}
+
+enum FinancialStatus {
+  A_FATURAR
+  FATURADO
+  PAGO
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  AUTOMATION
+  INTEGRATION
+}
+
+enum TimelineEventType {
+  FORM_RECEIVED
+  PRESCREENING_STARTED
+  PRESCREENING_COMPLETED
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  CALL_LOGGED
+  VISIT_SCHEDULED
+  VISIT_CONFIRMED
+  VISIT_RESCHEDULE_REQUESTED
+  VISIT_COMPLETED
+  VISIT_MISSED
+  STATUS_CHANGED
+  TASK_CREATED
+  TASK_COMPLETED
+  REIMBURSEMENT_CREATED
+  NOTE
+}
+
+enum NotificationType {
+  TASK
+  VISIT
+  MESSAGE
+  AUTOMATION
+  SYSTEM
+}
+
+enum ConsentPurpose {
+  CONTATO_WHATSAPP
+  CONTATO_TELEFONE
+  BANCO_VOLUNTARIOS
+}
+
+enum IntegrationSystem {
+  POLO_TRIAL
+  WHATSAPP
+  FORMS
+  FINANCE
+}
+
+enum AutomationRunStatus {
+  SUCESSO
+  IGNORADA
+  FALHA
+}
+
+/// Como a assistência age em uma intenção: só sugere ou aplica sozinha.
+enum AssistMode {
+  SUGERIR
+  AUTOMATICO
+}
+
+/// Destino de cada mensagem analisada pela assistência.
+enum AssistOutcome {
+  AUTOMATICA
+  PENDENTE
+  APROVADA
+  TRATADA
+  ENCAMINHADA
+}
+
+enum ReviewVerdict {
+  CORRETA
+  INCORRETA
+}
+
+// ─── Pessoas e acesso ─────────────────────────────────────────────────────
+
+model User {
+  id          String    @id @default(cuid())
+  name        String
+  email       String    @unique
+  role        UserRole
+  jobTitle    String
+  active      Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  memberships    StudyMember[]
+  ownedStudies   Study[]          @relation("StudyOwner")
+  participants   Participant[]    @relation("ParticipantOwner")
+  visits         Visit[]          @relation("VisitStaff")
+  tasksAssigned  Task[]           @relation("TaskAssignee")
+  tasksCreated   Task[]           @relation("TaskCreator")
+  tasksCompleted Task[]           @relation("TaskCompleter")
+  messagesSent   Communication[]
+  conversations  Conversation[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  timelineEvents TimelineEvent[]
+  assistReviews  AssistDecision[]
+}
+
+/// Vínculo usuário ↔ estudo. Base para separar dados por estudo.
+model StudyMember {
+  id        String @id @default(cuid())
+  studyId   String
+  userId    String
+  studyRole String
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([studyId, userId])
+}
+
+// ─── Estudos ──────────────────────────────────────────────────────────────
+
+model Study {
+  id                 String      @id @default(cuid())
+  code               String      @unique
+  name               String
+  title              String
+  sponsor            String
+  indication         String
+  studyType          String
+  phase              String
+  status             StudyStatus
+  targetEnrollment   Int
+  /// Snapshot da fonte (Polo Trial): participantes incluídos. Não calculado aqui.
+  enrolledCount      Int
+  /// Snapshot da fonte (Polo Trial): participantes em triagem. Não calculado aqui.
+  screeningCount     Int
+  sourceSyncedAt     DateTime?
+  startDate          DateTime
+  /// Plano operacional de recrutamento (definido pela coordenação).
+  recruitmentEndDate DateTime?
+  expectedEndDate    DateTime
+  budgetCents        Int
+  ownerId            String
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  owner              User                     @relation("StudyOwner", fields: [ownerId], references: [id])
+  members            StudyMember[]
+  participants       Participant[]
+  recruitments       Recruitment[]
+  recruitmentMetrics RecruitmentMetric[]
+  visits             Visit[]
+  tasks              Task[]
+  conversations      Conversation[]
+  communications     Communication[]
+  templates          MessageTemplate[]
+  reimbursements     Reimbursement[]
+  financialRecords   FinancialRecord[]
+  timelineEvents     TimelineEvent[]
+  auditLogs          AuditLog[]
+  automationRuns     AutomationRun[]
+  automationSettings StudyAutomationSettings?
+  assistPolicies     AssistPolicy[]
+  assistDecisions    AssistDecision[]
+}
+
+// ─── Participantes e recrutamento ─────────────────────────────────────────
+
+model Participant {
+  id              String             @id @default(cuid())
+  /// Identificador operacional interno (não é o ID do participante no estudo).
+  code            String             @unique
+  fullName        String
+  phone           String
+  email           String?
+  studyId         String
+  status          ParticipantStatus
+  channel         RecruitmentChannel
+  ownerId         String?
+  lastContactAt   DateTime?
+  nextAction      String?
+  nextActionDueAt DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  study           Study            @relation(fields: [studyId], references: [id])
+  owner           User?            @relation("ParticipantOwner", fields: [ownerId], references: [id])
+  recruitment     Recruitment?
+  visits          Visit[]
+  conversations   Conversation[]
+  communications  Communication[]
+  tasks           Task[]
+  reimbursements  Reimbursement[]
+  timeline        TimelineEvent[]
+  consents        ConsentRecord[]
+  assistDecisions AssistDecision[]
+
+  @@index([studyId, status])
+}
+
+/// Etapas do funil (configuráveis). Ordem define a sequência.
+model RecruitmentStage {
+  id          String @id @default(cuid())
+  key         String @unique
+  name        String
+  description String
+  order       Int
+
+  recruitments Recruitment[]
+  metrics      RecruitmentMetric[]
+}
+
+/// Registro de recrutamento individual (um por participante).
+model Recruitment {
+  id             String             @id @default(cuid())
+  participantId  String             @unique
+  studyId        String
+  stageId        String
+  campaign       String?
+  outcome        RecruitmentOutcome
+  enteredAt      DateTime
+  stageUpdatedAt DateTime
+
+  participant Participant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study       Study            @relation(fields: [studyId], references: [id])
+  stage       RecruitmentStage @relation(fields: [stageId], references: [id])
+}
+
+/// Métricas agregadas do funil por semana × canal × etapa.
+/// No produto real seriam alimentadas por formulários, landing pages e Polo Trial.
+model RecruitmentMetric {
+  id        String             @id @default(cuid())
+  studyId   String
+  stageId   String
+  channel   RecruitmentChannel
+  weekStart DateTime
+  count     Int
+
+  study Study            @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  stage RecruitmentStage @relation(fields: [stageId], references: [id])
+
+  @@unique([studyId, stageId, channel, weekStart])
+  @@index([weekStart])
+}
+
+/// Consentimento para contato/uso de dados (preparação LGPD).
+model ConsentRecord {
+  id             String         @id @default(cuid())
+  participantId  String
+  purpose        ConsentPurpose
+  granted        Boolean
+  source         String
+  recordedAt     DateTime
+  revokedAt      DateTime?
+  retentionUntil DateTime?
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+}
+
+// ─── Agenda ───────────────────────────────────────────────────────────────
+
+model Visit {
+  id              String        @id @default(cuid())
+  participantId   String
+  studyId         String
+  /// Nome da visita conforme o protocolo (vem do Polo Trial).
+  name            String
+  category        VisitCategory
+  scheduledAt     DateTime
+  durationMin     Int
+  status          VisitStatus
+  staffId         String?
+  room            String?
+  /// Janela protocolar informada pelo Polo Trial. Nunca calculada no Plátano Ops.
+  windowStart     DateTime?
+  windowEnd       DateTime?
+  rescheduleCount Int           @default(0)
+  /// Nova data proposta ao participante na remarcação; a visita só muda quando ele confirma.
+  proposedAt      DateTime?
+  reminderSentAt  DateTime?
+  confirmedAt     DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  participant    Participant     @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study          Study           @relation(fields: [studyId], references: [id])
+  staff          User?           @relation("VisitStaff", fields: [staffId], references: [id])
+  tasks          Task[]
+  reimbursements Reimbursement[]
+
+  @@index([scheduledAt])
+  @@index([studyId, status])
+}
+
+// ─── Comunicação ──────────────────────────────────────────────────────────
+
+model Conversation {
+  id               String               @id @default(cuid())
+  participantId    String
+  studyId          String
+  channel          CommunicationChannel
+  status           ConversationStatus
+  assignedToId     String?
+  unreadCount      Int                  @default(0)
+  /// Follow-ups automáticos enviados desde a última resposta do participante.
+  followUpAttempts Int                  @default(0)
+  lastFollowUpAt   DateTime?
+  lastMessageAt    DateTime
+  createdAt        DateTime             @default(now())
+
+  participant Participant     @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study       Study           @relation(fields: [studyId], references: [id])
+  assignedTo  User?           @relation(fields: [assignedToId], references: [id])
+  messages    Communication[]
+
+  @@unique([participantId, channel])
+}
+
+/// Mensagem ou contato registrado (WhatsApp simulado, telefone, e-mail, nota interna).
+model Communication {
+  id             String               @id @default(cuid())
+  conversationId String?
+  participantId  String
+  studyId        String
+  channel        CommunicationChannel
+  direction      MessageDirection
+  body           String
+  templateId     String?
+  status         MessageStatus
+  automated      Boolean              @default(false)
+  automationKey  String?
+  /// Intenção classificada pela assistência (simulada) — apenas sugestão.
+  intent         String?
+  sentById       String?
+  /// ID da mensagem no provedor externo (quando houver integração real).
+  externalId     String?
+  sentAt         DateTime
+
+  conversation   Conversation?    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  participant    Participant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study          Study            @relation(fields: [studyId], references: [id])
+  template       MessageTemplate? @relation(fields: [templateId], references: [id])
+  sentBy         User?            @relation(fields: [sentById], references: [id])
+  assistDecision AssistDecision?
+
+  @@index([conversationId, sentAt])
+}
+
+/// Modelos de mensagem. Apenas modelos APROVADOS (CEP) podem ser enviados a participantes.
+model MessageTemplate {
+  id             String                 @id @default(cuid())
+  key            String                 @unique
+  name           String
+  category       TemplateCategory
+  body           String
+  /// null = modelo institucional válido para todos os estudos.
+  studyId        String?
+  approvalStatus TemplateApprovalStatus
+  cepReference   String?
+  approvedAt     DateTime?
+  version        Int                    @default(1)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  study          Study?          @relation(fields: [studyId], references: [id])
+  communications Communication[]
+}
+
+// ─── Pendências ───────────────────────────────────────────────────────────
+
+model Task {
+  id            String       @id @default(cuid())
+  title         String
+  description   String?
+  priority      TaskPriority
+  status        TaskStatus
+  dueAt         DateTime
+  studyId       String?
+  participantId String?
+  visitId       String?
+  assigneeId    String?
+  createdById   String?
+  source        TaskSource
+  /// Regra de automação que originou a pendência (quando aplicável).
+  automationKey String?
+  completedAt   DateTime?
+  completedById String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  study       Study?       @relation(fields: [studyId], references: [id])
+  participant Participant? @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  visit       Visit?       @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy   User?        @relation("TaskCreator", fields: [createdById], references: [id])
+  completedBy User?        @relation("TaskCompleter", fields: [completedById], references: [id])
+
+  @@index([status, dueAt])
+}
+
+// ─── Financeiro ───────────────────────────────────────────────────────────
+
+model Reimbursement {
+  id              String              @id @default(cuid())
+  code            String              @unique
+  participantId   String
+  studyId         String
+  visitId         String?
+  amountCents     Int
+  description     String
+  status          ReimbursementStatus
+  receiptReceived Boolean             @default(false)
+  requestedAt     DateTime
+  paidAt          DateTime?
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study       Study       @relation(fields: [studyId], references: [id])
+  visit       Visit?      @relation(fields: [visitId], references: [id], onDelete: SetNull)
+}
+
+/// Lançamentos financeiros do estudo (agregados por competência mensal).
+model FinancialRecord {
+  id              String            @id @default(cuid())
+  studyId         String
+  category        FinancialCategory
+  description     String
+  competence      DateTime
+  quantity        Int
+  unitAmountCents Int
+  amountCents     Int
+  status          FinancialStatus
+  createdAt       DateTime          @default(now())
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+}
+
+// ─── Rastreabilidade ──────────────────────────────────────────────────────
+
+/// Linha do tempo operacional do participante.
+model TimelineEvent {
+  id            String            @id @default(cuid())
+  participantId String
+  studyId       String
+  type          TimelineEventType
+  title         String
+  description   String?
+  /// Canal/sistema de origem: "WhatsApp", "Formulário", "Polo Trial", "Automação"...
+  source        String?
+  actorType     ActorType
+  actorId       String?
+  occurredAt    DateTime
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study       Study       @relation(fields: [studyId], references: [id])
+  actor       User?       @relation(fields: [actorId], references: [id])
+
+  @@index([participantId, occurredAt])
+}
+
+/// Registro de auditoria: quem fez o quê, quando e em qual entidade.
+model AuditLog {
+  id         String    @id @default(cuid())
+  actorType  ActorType
+  actorId    String?
+  actorLabel String
+  action     String
+  entityType String
+  entityId   String?
+  studyId    String?
+  summary    String
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  actor User?  @relation(fields: [actorId], references: [id])
+  study Study? @relation(fields: [studyId], references: [id])
+
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String?
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Integrações e automações ─────────────────────────────────────────────
+
+/// Mapeia entidades locais para IDs em sistemas externos (sem assumir APIs).
+model ExternalReference {
+  id           String            @id @default(cuid())
+  system       IntegrationSystem
+  entityType   String
+  entityId     String
+  externalId   String
+  lastSyncedAt DateTime?
+
+  @@unique([system, entityType, entityId])
+}
+
+model AutomationRule {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  trigger   String
+  condition String
+  action    String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs AutomationRun[]
+}
+
+model AutomationRun {
+  id            String              @id @default(cuid())
+  ruleId        String
+  status        AutomationRunStatus
+  summary       String
+  entityType    String?
+  entityId      String?
+  studyId       String?
+  participantId String?
+  createdAt     DateTime            @default(now())
+
+  rule  AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  study Study?         @relation(fields: [studyId], references: [id])
+
+  @@index([createdAt])
+}
+
+// ─── Assistência IA e follow-up ──────────────────────────────────────────
+
+/// Configuração de automações por estudo (cadência de follow-up e horário de envio).
+model StudyAutomationSettings {
+  id                    String   @id @default(cuid())
+  studyId               String   @unique
+  followUpEnabled       Boolean  @default(true)
+  /// Quantos follow-ups automáticos antes de virar pendência de ligação (0 = nenhum).
+  followUpMaxAttempts   Int      @default(1)
+  followUpIntervalHours Int      @default(24)
+  /// Janela de envio no horário local do centro (hora inicial e final).
+  sendWindowStart       Int      @default(7)
+  sendWindowEnd         Int      @default(21)
+  /// Interpretação por IA das mensagens que as regras não resolveram: DESLIGADA, SUGERIR ou AUTOMATICO.
+  aiMode                String   @default("AUTOMATICO")
+  /// Confiança mínima da IA para aplicar sozinha (além do mínimo da intenção).
+  aiMinConfidence       Int      @default(80)
+  updatedById           String?
+  updatedAt             DateTime @updatedAt
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+}
+
+/// Política da assistência por estudo e intenção. Relato clínico e mensagens não
+/// classificadas nunca têm política: vão sempre para a equipe.
+model AssistPolicy {
+  id            String     @id @default(cuid())
+  studyId       String
+  intent        String
+  mode          AssistMode
+  minConfidence Int        @default(85)
+  updatedById   String?
+  updatedAt     DateTime   @updatedAt
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  @@unique([studyId, intent])
+}
+
+/// Decisão da assistência sobre uma mensagem recebida (fila de revisão + histórico).
+model AssistDecision {
+  id                   String         @id @default(cuid())
+  communicationId      String         @unique
+  participantId        String
+  studyId              String
+  intent               String
+  confidence           Int
+  ambiguous            Boolean        @default(false)
+  outcome              AssistOutcome
+  /// Por que foi aplicada sozinha ou ficou para revisão.
+  reason               String
+  /// Ação aplicada ou sugerida, em texto.
+  action               String?
+  suggestedTemplateKey String?
+  /// Quem interpretou a mensagem: "REGRAS" ou "IA".
+  source               String         @default("REGRAS")
+  /// Leitura das regras quando a IA foi consultada (para comparar).
+  rulesIntent          String?
+  rulesConfidence      Int?
+  /// Dia/horário pedido, normalizado pela IA (ex.: "amanha as 17:00").
+  timeHint             String?
+  reviewedById         String?
+  reviewedAt           DateTime?
+  verdict              ReviewVerdict?
+  createdAt            DateTime       @default(now())
+
+  communication Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  participant   Participant   @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  study         Study         @relation(fields: [studyId], references: [id])
+  reviewedBy    User?         @relation(fields: [reviewedById], references: [id])
+
+  @@index([outcome, createdAt])
+}
+
+/// Consumo da IA por mensagem analisada (tela "Consumo da IA").
+model AiUsage {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  studyId          String
+  /// Código do estudo no momento da análise (o histórico sobrevive à restauração da demo).
+  studyCode        String?
+  participantId    String
+  communicationId  String
+  decisionId       String?
+  /// Resultado no momento da análise: AUTOMATICA, EQUIPE, ENCAMINHADA, SEM_GANHO ou ERRO.
+  outcome          String?
+  /// "mock" (simulado, sem custo real) ou "live" (API da Anthropic).
+  mode             String
+  model            String
+  /// "OK" ou "ERRO".
+  status           String
+  error            String?
+  intent           String?
+  confidence       Int?
+  /// Justificativa curta da IA para a leitura.
+  rationale        String?
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  /// Estimativa pelo preço público do modelo, em dólares.
+  costUsd          Float    @default(0)
+  latencyMs        Int      @default(0)
+
+  @@index([createdAt])
+  @@index([studyId, createdAt])
+}

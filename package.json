@@ -1,0 +1,43 @@
+{
+  "name": "platano-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plátano Ops — camada operacional para centros de pesquisa clínica (MVP com dados fictícios)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "demo": "next build && next start",
+    "typecheck": "tsc --noEmit",
+    "setup": "prisma db push && npm run db:seed",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "npm run db:seed",
+    "db:studio": "prisma studio",
+    "verify": "node --conditions=react-server --import tsx scripts/verify-flows.ts",
+    "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
+    "ia:teste": "node --conditions=react-server --import tsx scripts/test-ai.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@prisma/client": "^6.19.3",
+    "lucide-react": "^1.53.0",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
