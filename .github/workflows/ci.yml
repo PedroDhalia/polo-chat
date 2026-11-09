@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, tipos, testes e build
+    runs-on: ubuntu-latest
+    env:
+      # Banco SQLite descartável; o `verify` cria o próprio banco isolado.
+      DATABASE_URL: file:./ci.db
+      # Nunca chama a API da Anthropic no CI: a IA roda simulada, sem custo.
+      ASSIST_AI_MODE: mock
+      INTEGRATIONS_MODE: mock
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar Prisma Client e tipos do Next
+        run: |
+          npx prisma generate
+          npx next typegen
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Testes unitários
+        run: npm test
+
+      - name: Fluxos principais (banco isolado, IA simulada)
+        run: npm run verify
+
+      - name: Build
+        run: npm run build
