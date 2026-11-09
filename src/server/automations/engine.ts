@@ -1,14 +1,16 @@
 import "server-only";
-import type { AutomationRunStatus, Communication, Participant, Study, Task, Visit, VisitCategory } from "@prisma/client";
+import type { AssistDecision, AutomationRunStatus, Communication, Participant, Study, Task, Visit, VisitCategory } from "@prisma/client";
 import { DEFAULT_AI, estimateCostUsd, isAiMode, needsAiReview } from "@/domain/assist-ai";
-import { CALL_RESCHEDULE_PREFIX, confidenceLabel, DEFAULT_FOLLOW_UP, evaluatePolicy, INTENT_ACTION, INTENT_LABEL, isActionable, isWithinSendWindow } from "@/domain/assist-policy";
+import { CALL_CONFIRM_PREFIX, CALL_RESCHEDULE_PREFIX, confidenceLabel, DEFAULT_FOLLOW_UP, evaluatePolicy, INTENT_ACTION, INTENT_LABEL, isActionable, isFaqMulti, isVisitSlot, isWithinSendWindow, FAQ_MULTI_PREFIX, VISIT_SLOT_PREFIX } from "@/domain/assist-policy";
 import { getIntegrations } from "@/integrations";
 import type { AiInterpretation } from "@/integrations/ai/types";
-import { callLabel, pickCallSlot } from "@/domain/call-slot";
+import { callLabel, dayTimeLabel, pickCallSlot } from "@/domain/call-slot";
+import { visitDateLabel } from "@/domain/templates";
+import { readRequestedVisitTime } from "@/domain/visit-slot";
 import { firstName } from "@/lib/format";
 import { addDays, atLocalTime, formatDayMonth, formatTime, localHour, startOfDay } from "@/lib/dates";
 import { automationActor, type Actor } from "@/server/actor";
-import { analyzeMessage, type AssistResult } from "@/server/ai/assist";
+import { analyzeMessage, faqTemplateKeys, type AssistResult } from "@/server/ai/assist";
 import { db } from "@/server/db";
 import { DomainError } from "@/server/errors";
 import { getAssistPolicy, getAutomationSettings } from "@/server/services/assist";
@@ -17,7 +19,7 @@ import { createReimbursementForVisit } from "@/server/services/finance";
 import { hasWhatsAppConsent, nextActiveVisit, sendTemplateMessage, setConversationStatus } from "@/server/services/messaging";
 import { changeParticipantStatus, revokeWhatsAppConsent } from "@/server/services/participants";
 import { closeTasks, createTask, findOpenTasks } from "@/server/services/tasks";
-import { acceptProposedDate, changeVisitStatus, createVisit, declineProposedDate, findPendingProposal } from "@/server/services/visits";
+import { acceptProposedDate, changeVisitStatus, checkRequestedVisitSlot, createVisit, declineProposedDate, findPendingProposal, findVisitAwaitingNewDate, proposeVisitDate } from "@/server/services/visits";
 import type { AutomationRuleKey } from "./rules";
 
 // Motor de automações do MVP: Evento → Regra → Ação → Resultado.
@@ -423,10 +425,14 @@ async function checkApplicable(a: AssistResult, participantId: string, visit: Vi
     case "CONFIRMACAO":
       // Já confirmada: a automação só reenvia a confirmação com a data.
       if (visit?.proposedAt || visit?.status === "AGUARDANDO_CONFIRMACAO" || visit?.status === "CONFIRMADO") return { ok: true };
+      if (!visit && (await findScheduledCall(participantId))) return { ok: true }; // confirma o horário da ligação
       if (visit?.status === "REAGENDAMENTO_SOLICITADO") return { ok: false, reason: "Visita com remarcação solicitada: proponha uma nova data" };
       return { ok: false, reason: "Nenhuma visita futura para confirmar (a visita pode já ter passado)" };
     case "REAGENDAMENTO":
-      return visit || (await findScheduledCall(participantId)) ? { ok: true } : { ok: false, reason: "Nenhuma visita ou ligação agendada para remarcar" };
+      // Vale também para a visita com falta (ou remarcação pedida) que ainda espera nova data.
+      return visit || (await findScheduledCall(participantId)) || (await findVisitAwaitingNewDate(participantId))
+        ? { ok: true }
+        : { ok: false, reason: "Nenhuma visita ou ligação agendada para remarcar" };
     case "DUVIDA_FREQUENTE": {
       if (!a.suggestedTemplateKey) return { ok: false, reason: "Sem resposta aprovada para a dúvida" };
       const tpl = await db.messageTemplate.findUnique({ where: { key: a.suggestedTemplateKey } });
@@ -455,7 +461,10 @@ async function handleAssist(msg: InboundMessage): Promise<string[]> {
   const aiMode = "aiMode" in settings && isAiMode(settings.aiMode) ? settings.aiMode : DEFAULT_AI.aiMode;
   const aiMin = "aiMinConfidence" in settings ? settings.aiMinConfidence : DEFAULT_AI.aiMinConfidence;
   let ai: { source: "IA"; rulesIntent: string; rulesConfidence: number; timeHint: string | null; usageId: string } | null = null;
-  if (rule?.enabled && aiMode !== "DESLIGADA" && needsAiReview(a, policy?.minConfidence ?? null)) {
+  // Só dúvidas com resposta aprovada (as regras já sabem quais): a IA não acrescenta nada.
+  const faqKeys = faqTemplateKeys(msg.body);
+  const onlyFaqs = a.intent === "DUVIDA_FREQUENTE" && faqKeys.length > 1 && a.signals.every((s) => s === "DUVIDA_FREQUENTE");
+  if (rule?.enabled && aiMode !== "DESLIGADA" && !onlyFaqs && needsAiReview(a, policy?.minConfidence ?? null)) {
     const consulted = await consultAi(msg, visit, hasPendingVisit);
     if (consulted && consulted.result.intent === "OUTRO" && a.intent !== "OUTRO") {
       // A IA não acrescentou nada: fica valendo a leitura das regras.
@@ -486,13 +495,41 @@ async function handleAssist(msg: InboundMessage): Promise<string[]> {
     ev = { ...ev, reason: `IA: ${ev.reason}` };
   }
 
-  // Candidato pediu outro horário para a ligação: a equipe aprova o novo horário antes de ele ser avisado.
+  // Sem visita e com ligação agendada, "combinado"/"confirmo" confirma o horário da ligação: nada a alterar.
+  if (a.intent === "CONFIRMACAO" && !visit) {
+    const call = await findScheduledCall(p.id);
+    if (call) action = `${CALL_CONFIRM_PREFIX} (${callLabel(call.dueAt)}): nada a alterar`;
+  }
+
+  // Duas ou mais dúvidas com resposta aprovada: a equipe confirma e as respostas saem juntas.
+  if (a.intent === "DUVIDA_FREQUENTE" && faqKeys.length > 1 && ev.outcome !== "ENCAMINHADA") {
+    const templates = await db.messageTemplate.findMany({ where: { key: { in: faqKeys }, approvalStatus: "APROVADO" } });
+    if (templates.length === faqKeys.length) {
+      const names = faqKeys.map((k) => `“${templates.find((t) => t.key === k)?.name}”`);
+      action = `${FAQ_MULTI_PREFIX}${names.slice(0, -1).join(", ")} e ${names.at(-1)} numa mensagem só`;
+      const multiReason = `${faqKeys.length} dúvidas com resposta aprovada na mesma mensagem: a equipe confirma e as respostas saem numa mensagem só`;
+      ev = { outcome: "PENDENTE", reason: ev.outcome === "AUTOMATICA" || ev.reason === "Mais de uma intenção na mesma mensagem" ? multiReason : ev.reason };
+    }
+  }
+
   if (a.intent === "REAGENDAMENTO") {
-    const call = await callRescheduleContext(p.id, visit);
-    const slot = call && pickCallSlot(ai?.timeHint ?? msg.body, new Date(), { defaultDay: call.dueAt });
-    if (call && slot?.preference && slot.at.getTime() !== call.dueAt.getTime()) {
-      action = `${CALL_RESCHEDULE_PREFIX}${formatDayMonth(slot.at)} às ${formatTime(slot.at)} (pedido: ${slot.preference}) e avisar o candidato`;
-      if (ev.outcome === "AUTOMATICA") ev = { outcome: "PENDENTE", reason: "Novo horário de ligação: a equipe aprova antes de avisar o candidato" };
+    const target = visit ?? (await findVisitAwaitingNewDate(p.id));
+    const call = await callRescheduleContext(p.id, target);
+    if (call) {
+      // Candidato pediu outro horário para a ligação: a equipe aprova o novo horário antes de ele ser avisado.
+      const slot = pickCallSlot(ai?.timeHint ?? msg.body, new Date(), { defaultDay: call.dueAt });
+      if (slot.preference && slot.at.getTime() !== call.dueAt.getTime()) {
+        action = `${CALL_RESCHEDULE_PREFIX}${formatDayMonth(slot.at)} às ${formatTime(slot.at)} (pedido: ${slot.preference}) e avisar o candidato`;
+        if (ev.outcome === "AUTOMATICA") ev = { outcome: "PENDENTE", reason: "Novo horário de ligação: a equipe aprova antes de avisar o candidato" };
+      }
+    } else if (target) {
+      // Participante pediu dia e hora exatos para a visita e o horário está livre: a equipe só confirma
+      // e a visita é remarcada na hora. Ocupado ou fora da janela, segue o fluxo normal.
+      const asked = readRequestedVisitTime(msg.body, msg.sentAt);
+      if (asked && (await checkRequestedVisitSlot(target, asked.at)).ok) {
+        action = `${VISIT_SLOT_PREFIX}${dayTimeLabel(asked.at)} (pedido do participante; horário livre na agenda e dentro da janela) e confirmar`;
+        if (ev.outcome === "AUTOMATICA") ev = { outcome: "PENDENTE", reason: "Horário pedido está livre: a equipe confirma e a visita é remarcada na hora" };
+      }
     }
   }
 
@@ -659,6 +696,32 @@ export async function confirmProposedDate(visitId: string, actor: Actor): Promis
   return lines;
 }
 
+/**
+ * O participante pediu dia e hora exatos, o horário estava livre e a equipe confirmou: a visita vai
+ * para o novo horário, já confirmada. Se a equipe escolheu outro horário, ele vira proposta e o
+ * participante confirma (a visita só muda depois).
+ */
+async function rescheduleToRequestedTime(d: AssistDecision, p: Participant, actor: Actor, teamAt?: Date): Promise<string[]> {
+  const message = await db.communication.findUnique({ where: { id: d.communicationId } });
+  const asked = message && readRequestedVisitTime(message.body, message.sentAt);
+  const visit = (await findPendingProposal(p.id)) ?? (await nextActiveVisit(p.id)) ?? (await findVisitAwaitingNewDate(p.id));
+  if (!visit || !asked) throw new DomainError("Visita ou horário pedido não encontrado: proponha a nova data pela conversa.");
+  const at = teamAt ?? asked.at;
+  const slot = await checkRequestedVisitSlot(visit, at);
+  if (!slot.ok) throw new DomainError(`Horário indisponível: ${slot.reason}. Escolha outro horário.`);
+  // Visita ainda marcada: o pedido de remarcação fica registrado antes de a data mudar.
+  if (visit.status === "AGUARDANDO_CONFIRMACAO" || visit.status === "CONFIRMADO") await changeVisitStatus(visit.id, "REAGENDAMENTO_SOLICITADO", actor);
+  if (at.getTime() !== asked.at.getTime()) {
+    await proposeVisitDate(visit.id, at, actor);
+    if (await hasWhatsAppConsent(p.id)) {
+      await sendTemplateMessage({ participantId: p.id, templateKey: "tpl-proposta-data", extraVars: { nova_data: visitDateLabel(at), nova_hora: formatTime(at) }, actor });
+    }
+    return [`Outro horário escolhido pela equipe: ${formatDayMonth(at)} às ${formatTime(at)} proposto ao participante (a visita muda quando ele confirmar)`];
+  }
+  await proposeVisitDate(visit.id, at, actor, { byParticipant: true });
+  return confirmProposedDate(visit.id, actor);
+}
+
 export async function applyAssistDecision(decisionId: string, actor: Actor, opts: { callAt?: Date } = {}): Promise<string[]> {
   const d = await db.assistDecision.findUnique({ where: { id: decisionId }, include: { participant: true } });
   if (!d) throw new DomainError("Sugestão não encontrada.");
@@ -681,7 +744,15 @@ export async function applyAssistDecision(decisionId: string, actor: Actor, opts
       if (!visit) {
         // Visita já confirmada (ex.: "Confirmo" em resposta ao lembrete da véspera): reenvia a confirmação.
         const confirmed = await nextActiveVisit(p.id);
-        if (confirmed?.status !== "CONFIRMADO") throw new DomainError("Não há visita aguardando confirmação para este participante.");
+        if (confirmed?.status !== "CONFIRMADO") {
+          // Sem visita: confirmação do horário da ligação de pré-triagem — só registra e encerra a conversa.
+          const call = await findScheduledCall(p.id);
+          if (!call) throw new DomainError("Não há visita aguardando confirmação para este participante.");
+          const conv = await db.conversation.findFirst({ where: { participantId: p.id, channel: "WHATSAPP" } });
+          if (conv) await setConversationStatus(conv.id, "RESOLVIDA", actor);
+          lines.push(`${CALL_CONFIRM_PREFIX} (${callLabel(call.dueAt)}): nada a alterar`);
+          break;
+        }
         if (await hasWhatsAppConsent(p.id)) {
           await sendTemplateMessage({ participantId: p.id, templateKey: "tpl-confirmacao", visitId: confirmed.id, actor });
           lines.push(`Visita ${confirmed.name} já estava confirmada: confirmação reenviada (${formatDayMonth(confirmed.scheduledAt)} às ${formatTime(confirmed.scheduledAt)})`);
@@ -698,14 +769,28 @@ export async function applyAssistDecision(decisionId: string, actor: Actor, opts
       break;
     }
     case "DUVIDA_FREQUENTE": {
-      if (!d.suggestedTemplateKey) throw new DomainError("Sem resposta aprovada para esta dúvida.");
-      const { template } = await sendTemplateMessage({ participantId: p.id, templateKey: d.suggestedTemplateKey, actor });
-      lines.push(`Resposta aprovada “${template.name}” enviada`);
+      // Duas ou mais dúvidas: as respostas aprovadas saem juntas, na ordem em que foram perguntadas.
+      const message = isFaqMulti(d.action) ? await db.communication.findUnique({ where: { id: d.communicationId } }) : null;
+      const keys = message ? faqTemplateKeys(message.body) : d.suggestedTemplateKey ? [d.suggestedTemplateKey] : [];
+      if (!keys.length) throw new DomainError("Sem resposta aprovada para esta dúvida.");
+      if (keys.length > 1) {
+        // Uma mensagem só: a saudação fica na primeira resposta e as demais entram ligadas por "e".
+        const { message: sent } = await sendTemplateMessage({ participantId: p.id, templateKeys: keys, actor });
+        lines.push(`Respostas aprovadas ${sent.combinedTemplates} enviadas numa mensagem só`);
+      } else {
+        const { template } = await sendTemplateMessage({ participantId: p.id, templateKey: keys[0], actor });
+        lines.push(`Resposta aprovada “${template.name}” enviada`);
+      }
       break;
     }
     case "REAGENDAMENTO": {
+      // Horário exato pedido pelo participante e livre: a equipe confirmou, a visita é remarcada.
+      if (isVisitSlot(d.action)) {
+        lines.push(...(await rescheduleToRequestedTime(d, p, actor, opts.callAt)));
+        break;
+      }
       // Pedido de outro horário para a ligação de pré-triagem agendada.
-      const call = await callRescheduleContext(p.id, (await findPendingProposal(p.id)) ?? (await nextActiveVisit(p.id)));
+      const call = await callRescheduleContext(p.id, (await findPendingProposal(p.id)) ?? (await nextActiveVisit(p.id)) ?? (await findVisitAwaitingNewDate(p.id)));
       if (call) {
         lines.push(...(await rescheduleCall(call, d.communicationId, p, actor, opts.callAt, d.timeHint)));
         break;
@@ -716,13 +801,23 @@ export async function applyAssistDecision(decisionId: string, actor: Actor, opts
         await declineProposedDate(proposal.id, actor);
         lines.push("Data proposta recusada: a equipe vai propor outra");
       }
-      const visit = proposal ?? (await nextActiveVisit(p.id));
+      // Falta (ou remarcação pedida) com a data já passada: a visita continua como está e espera a nova data.
+      const visit = proposal ?? (await nextActiveVisit(p.id)) ?? (await findVisitAwaitingNewDate(p.id));
       if (visit) {
+        // Dia e hora exatos pedidos, mas o horário não serve: a equipe vê o motivo e propõe outro.
+        const message = await db.communication.findUnique({ where: { id: d.communicationId } });
+        const asked = message && readRequestedVisitTime(message.body, message.sentAt);
+        const askedSlot = asked ? await checkRequestedVisitSlot(visit, asked.at) : null;
+        const askedNote = asked && askedSlot && !askedSlot.ok ? `Horário pedido (${formatDayMonth(asked.at)} às ${formatTime(asked.at)}) indisponível: ${askedSlot.reason}` : null;
+        if (askedNote) lines.push(askedNote);
         if (visit.status === "AGUARDANDO_CONFIRMACAO" || visit.status === "CONFIRMADO") await changeVisitStatus(visit.id, "REAGENDAMENTO_SOLICITADO", actor);
-        if ((await findOpenTasks({ visitId: visit.id })).length === 0) {
+        if ((await findOpenTasks({ visitId: visit.id })).length > 0) {
+          lines.push(`Já existe pendência aberta para ${visit.name}: a equipe propõe a nova data`);
+        } else {
           await createTask(
             {
               title: `Reagendar visita ${visit.name} de ${p.fullName}`,
+              description: askedNote ? `${askedNote}. Proponha outro horário pela conversa.` : undefined,
               priority: "MEDIA",
               dueAt: defaultDue(),
               studyId: p.studyId,
@@ -775,7 +870,8 @@ export async function applyAssistDecision(decisionId: string, actor: Actor, opts
         },
         actor,
       );
-      lines.push(`Ligação agendada ${when} (pendência para o responsável)`);
+      const owner = p.ownerId ? await db.user.findUnique({ where: { id: p.ownerId }, select: { name: true } }) : null;
+      lines.push(`Ligação agendada ${when} — pendência para ${owner?.name ?? "o responsável"}`);
       if (await hasWhatsAppConsent(p.id)) {
         await sendTemplateMessage({ participantId: p.id, templateKey: "tpl-ligacao-agendada", extraVars: { ligacao: when }, actor });
         lines.push("Participante avisado: “Ligação agendada”");

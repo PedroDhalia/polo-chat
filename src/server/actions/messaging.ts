@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { userActor } from "@/server/actor";
 import { canAccessStudy, requirePermission } from "@/server/auth/session";
 import { dispatch } from "@/server/automations/engine";
 import { db } from "@/server/db";
 import { DomainError } from "@/server/errors";
-import { addInternalNote, markConversationRead, receiveSimulatedMessage, sendFreeTextMessage, sendTemplateMessage, setConversationStatus } from "@/server/services/messaging";
+import { addInternalNote, markConversationRead, openConversation, receiveSimulatedMessage, sendFreeTextMessage, sendTemplateMessage, setConversationStatus } from "@/server/services/messaging";
 import { revokeWhatsAppConsent } from "@/server/services/participants";
 import { act } from "./result";
 
@@ -15,6 +16,14 @@ async function authorizedParticipant(participantId: string, permission: "communi
   const p = await db.participant.findUnique({ where: { id: participantId } });
   if (!p || !canAccessStudy(user, p.studyId)) throw new DomainError("Participante não encontrado.");
   return { user, participant: p };
+}
+
+/** Abre a conversa de WhatsApp do participante (criada vazia se ainda não existe) e leva até ela. */
+export async function startConversationAction(participantId: string) {
+  const { participant } = await authorizedParticipant(participantId, "communication.view");
+  const conversation = await openConversation(participant.id);
+  revalidatePath("/comunicacao");
+  redirect(`/comunicacao?c=${conversation.id}`);
 }
 
 export async function sendTemplateAction(participantId: string, templateId: string) {

@@ -42,8 +42,8 @@ export function isActionable(intent: string): intent is ActionableIntent {
 /** O que a assistência faz quando a intenção é aplicada (automaticamente ou por aprovação). */
 export const INTENT_ACTION: Record<ActionableIntent, string> = {
   CONFIRMACAO: "Confirma a visita e envia “Confirmação de agendamento”",
-  DUVIDA_FREQUENTE: "Envia a resposta aprovada para a dúvida",
-  REAGENDAMENTO: "Visita: registra o pedido, cria pendência e envia “Reagendamento”. Ligação agendada: a equipe aprova o horário pedido e o candidato é avisado",
+  DUVIDA_FREQUENTE: "Envia a resposta aprovada para a dúvida; com duas ou mais dúvidas na mesma mensagem, a equipe confirma e as respostas saem numa mensagem só",
+  REAGENDAMENTO: "Visita: registra o pedido, cria pendência e envia “Reagendamento”; com dia e hora livres pedidos pelo participante, a equipe só confirma e a visita é remarcada. Ligação agendada: a equipe aprova o horário pedido e o candidato é avisado",
   DESCADASTRO: "Revoga o consentimento de WhatsApp e avisa o responsável",
   INTERESSE: "Agenda a ligação de pré-triagem (no horário pedido ou no próximo livre), cria a pendência e envia “Ligação agendada”",
 };
@@ -64,9 +64,44 @@ export function isCallReschedule(action: string | null | undefined): boolean {
   return !!action?.startsWith(CALL_RESCHEDULE_PREFIX);
 }
 
-/** Rótulo do botão de aprovação (o novo horário de ligação tem rótulo próprio). */
+/** "Combinado" depois de "Ligação agendada": o candidato só confirma o horário — nada a alterar. */
+export const CALL_CONFIRM_PREFIX = "Candidato confirmou o horário da ligação";
+
+export function isCallConfirm(action: string | null | undefined): boolean {
+  return !!action?.startsWith(CALL_CONFIRM_PREFIX);
+}
+
+/** Participante pediu dia e hora exatos para a visita e o horário está livre: a equipe confirma e a visita é remarcada. */
+export const VISIT_SLOT_PREFIX = "Remarcar a visita para ";
+
+export function isVisitSlot(action: string | null | undefined): boolean {
+  return !!action?.startsWith(VISIT_SLOT_PREFIX);
+}
+
+/** Duas ou mais dúvidas com resposta aprovada na mesma mensagem: a equipe confirma e as respostas saem juntas. */
+export const FAQ_MULTI_PREFIX = "Enviar as respostas aprovadas ";
+
+export function isFaqMulti(action: string | null | undefined): boolean {
+  return !!action?.startsWith(FAQ_MULTI_PREFIX);
+}
+
+/** Sugestões com horário a aprovar: a equipe pode escolher outro. */
+export function isNewTimeSuggestion(action: string | null | undefined): boolean {
+  return isCallReschedule(action) || isVisitSlot(action);
+}
+
+/** Sugestões sobre a ligação de pré-triagem (não usam os modelos da visita). */
+export function isCallAction(action: string | null | undefined): boolean {
+  return isCallReschedule(action) || isCallConfirm(action);
+}
+
+/** Rótulo do botão de aprovação (as sugestões com horário têm rótulos próprios). */
 export function approveLabel(intent: ActionableIntent, action?: string | null): string {
-  return isCallReschedule(action) ? "Aprovar novo horário" : APPROVE_LABEL[intent];
+  if (isCallReschedule(action)) return "Aprovar novo horário";
+  if (isVisitSlot(action)) return "Confirmar novo horário";
+  if (isFaqMulti(action)) return `Enviar as ${action?.match(/“/g)?.length ?? 2} respostas`;
+  if (isCallConfirm(action)) return "Registrar confirmação";
+  return APPROVE_LABEL[intent];
 }
 
 export const DEFAULT_POLICY: { mode: AssistMode; minConfidence: number } = { mode: "SUGERIR", minConfidence: 85 };

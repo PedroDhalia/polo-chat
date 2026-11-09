@@ -62,6 +62,15 @@ const FAQ: { key: string; re: RegExp }[] = [
   { key: "tpl-faq-endereco", re: /(endereco|estacionamento|onde fica|como chego|localizacao)/ },
 ];
 
+/** Respostas aprovadas que cobrem as dúvidas da mensagem, na ordem em que aparecem ("onde fica e preciso levar RG?" → endereço, documentos). */
+export function faqTemplateKeys(text: string): string[] {
+  const t = norm(text);
+  return FAQ.map((f) => ({ key: f.key, at: t.search(f.re) }))
+    .filter((f) => f.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .map((f) => f.key);
+}
+
 function result(intent: AssistIntent, score: number, extra: Omit<AssistResult, "intent" | "label" | "score" | "confidence" | "ambiguous" | "signals"> & { signals: AssistIntent[]; ambiguous?: boolean }): AssistResult {
   const ambiguous = extra.ambiguous ?? false;
   const s = Math.max(0, Math.min(100, ambiguous ? Math.min(score, 55) : score));

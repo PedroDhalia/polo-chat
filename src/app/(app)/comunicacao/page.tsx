@@ -1,5 +1,6 @@
-import { MessagesSquare, Workflow } from "lucide-react";
+import { MessageSquarePlus, MessagesSquare, Workflow } from "lucide-react";
 import Link from "@/components/ui/link";
+import { buttonClasses } from "@/components/ui/button";
 import { EmptyState, Page, RestrictedAccess } from "@/components/ui/misc";
 import { FilterChips, hrefWith, Tabs } from "@/components/ui/nav";
 import { UrlSearch, UrlSelect } from "@/components/ui/url-filters";
@@ -12,7 +13,8 @@ import { formatAgo, formatRelativeDay, formatTime } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { maskPhone } from "@/lib/format";
 import { can, getCurrentUser } from "@/server/auth/session";
-import { countPendingReview, getConversation, INBOX_PAGE, listConversations, type InboxFilter } from "@/server/queries/communication";
+import { startConversationAction } from "@/server/actions/messaging";
+import { countPendingReview, getConversation, INBOX_PAGE, listConversations, participantsWithoutConversation, type InboxFilter } from "@/server/queries/communication";
 import { studyOptions } from "@/server/queries/studies";
 
 export const metadata = { title: "Comunicação" };
@@ -67,7 +69,11 @@ export default async function CommunicationPage({ searchParams }: { searchParams
     );
   }
 
-  const [inbox, studies] = await Promise.all([listConversations(user, { filter, studyId: sp.estudo, q: sp.q, limit: Number(sp.limite) || undefined }), studyOptions(user)]);
+  const [inbox, studies, withoutConversation] = await Promise.all([
+    listConversations(user, { filter, studyId: sp.estudo, q: sp.q, limit: Number(sp.limite) || undefined }),
+    studyOptions(user),
+    sp.q ? participantsWithoutConversation(user, sp.q) : [],
+  ]);
   const selectedId = sp.c ?? inbox.items[0]?.id;
   const detail = selectedId ? await getConversation(user, selectedId) : null;
   const current = { filtro: sp.filtro, estudo: sp.estudo, q: sp.q, c: sp.c, limite: sp.limite };
@@ -119,6 +125,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
                         </span>
                       )}
                     </div>
+                    {!c.lastMessage && <div className="mt-1 text-[12.5px] text-ink-3">Sem mensagens ainda</div>}
                     {c.lastMessage && (
                       <div className="mt-1 flex items-center gap-1 text-[12.5px] text-ink-3">
                         <ListPreview conversationId={c.id}>
@@ -135,6 +142,25 @@ export default async function CommunicationPage({ searchParams }: { searchParams
                 </li>
               );
             })}
+            {withoutConversation.length > 0 && (
+              <li className="border-b border-line/70 bg-subtle/60 px-4 py-3">
+                <div className="text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">Sem conversa ainda</div>
+                <ul className="mt-1.5 space-y-1.5">
+                  {withoutConversation.map((p) => (
+                    <li key={p.id} className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                        {p.fullName} <span className="text-[11.5px] text-ink-3">· {p.study.code}</span>
+                      </span>
+                      <form action={startConversationAction.bind(null, p.id)}>
+                        <button type="submit" className={buttonClasses("subtle", "xs")}>
+                          <MessageSquarePlus className="size-3.5" /> Iniciar conversa
+                        </button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            )}
             {inbox.hasMore && (
               <li className="p-3">
                 <Link
@@ -184,6 +210,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               sentAt: m.sentAt,
               templateName: m.template?.name ?? null,
               templateVersion: m.template?.version ?? null,
+              combinedTemplates: m.combinedTemplates ?? null,
               sentByName: m.sentBy?.name ?? null,
               automationKey: m.automationKey,
               freeText: m.direction === "OUTBOUND" && !m.templateId,

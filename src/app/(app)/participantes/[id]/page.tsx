@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarClock, CircleCheck, CircleX, Database, MessagesSquar
 import Link from "@/components/ui/link";
 import { notFound } from "next/navigation";
 import { Badge, StatusBadge } from "@/components/ui/badge";
-import { ButtonLink } from "@/components/ui/button";
+import { buttonClasses, ButtonLink } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Avatar, EmptyState, Page, RestrictedAccess, SourceTag } from "@/components/ui/misc";
 import { CHANNEL, PARTICIPANT_STATUS, REIMBURSEMENT_STATUS, ROLE, TASK_PRIORITY, VISIT_STATUS } from "@/domain/labels";
@@ -14,6 +14,7 @@ import { formatDate, formatDayMonth, formatRelativeDateTime, formatTime, toDateP
 import { cn } from "@/lib/cn";
 import { formatBRL, maskPhone } from "@/lib/format";
 import { can, getCurrentUser } from "@/server/auth/session";
+import { startConversationAction } from "@/server/actions/messaging";
 import { RESCHEDULE_LIMIT } from "@/domain/rules";
 import { getParticipantDetail } from "@/server/queries/participants";
 
@@ -61,11 +62,19 @@ export default async function ParticipantPage({ params }: { params: Promise<{ id
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {can(user, "communication.view") && (
-            <ButtonLink href={conversation ? `/comunicacao?c=${conversation.id}` : "/comunicacao"} variant="secondary">
-              <MessagesSquare className="size-3.5" /> Abrir conversa
-            </ButtonLink>
-          )}
+          {can(user, "communication.view") &&
+            (conversation ? (
+              <ButtonLink href={`/comunicacao?c=${conversation.id}`} variant="secondary">
+                <MessagesSquare className="size-3.5" /> Abrir conversa
+              </ButtonLink>
+            ) : (
+              // Ainda sem mensagens (ex.: veio de formulário): a conversa é criada e aberta.
+              <form action={startConversationAction.bind(null, p.id)}>
+                <button type="submit" className={buttonClasses("secondary")}>
+                  <MessagesSquare className="size-3.5" /> Iniciar conversa
+                </button>
+              </form>
+            ))}
           <LogContactButton participantId={p.id} disabled={!canEdit} />
           <StatusMenu participantId={p.id} status={p.status} disabled={!canEdit} />
         </div>

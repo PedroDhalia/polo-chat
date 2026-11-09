@@ -1,7 +1,9 @@
 import "server-only";
-import type { VisitCategory, VisitStatus } from "@prisma/client";
+import type { Visit, VisitCategory, VisitStatus } from "@prisma/client";
 import { VISIT_STATUS } from "@/domain/labels";
-import { formatDateTime, formatDayMonth } from "@/lib/dates";
+import { checkVisitSlot, type SlotCheck } from "@/domain/visit-slot";
+import { isWithinWindow } from "@/domain/visit-window";
+import { addDays, formatDateTime, formatDayMonth, startOfDay } from "@/lib/dates";
 import type { Actor } from "@/server/actor";
 import { db } from "@/server/db";
 import { DomainError } from "@/server/errors";
@@ -91,6 +93,39 @@ export async function createVisit(input: { participantId: string; name: string; 
 /** Visitas que podem receber proposta de nova data: pedido de remarcação ou falta. */
 const PROPOSABLE: VisitStatus[] = ["REAGENDAMENTO_SOLICITADO", "FALTOU"];
 
+/**
+ * Visita com falta ou remarcação pedida que ainda espera nova data, mesmo com a data original já
+ * passada: a mais recente cuja janela do Polo Trial não encerrou (sem janela, até 14 dias depois).
+ */
+export async function findVisitAwaitingNewDate(participantId: string, now: Date = new Date()) {
+  return db.visit.findFirst({
+    where: {
+      participantId,
+      status: { in: PROPOSABLE },
+      // Último dia da janela incluído: ainda vale até o fim do dia.
+      OR: [{ windowEnd: { gte: startOfDay(now) } }, { windowEnd: null, scheduledAt: { gte: addDays(now, -14) } }],
+    },
+    orderBy: { scheduledAt: "desc" },
+  });
+}
+
+/** O horário pedido para a visita está livre? Confere janela, horário de visitas e a agenda do responsável no dia. */
+export async function checkRequestedVisitSlot(visit: Visit, at: Date, now: Date = new Date()): Promise<SlotCheck> {
+  const participant = await db.participant.findUnique({ where: { id: visit.participantId }, select: { ownerId: true, owner: { select: { name: true } } } });
+  const day = startOfDay(at);
+  const visits = await db.visit.findMany({
+    where: { scheduledAt: { gte: day, lt: addDays(day, 1) }, status: { not: "CANCELADO" }, id: { not: visit.id } },
+    include: { participant: { select: { fullName: true } } },
+  });
+  return checkVisitSlot(at, {
+    now,
+    window: visit,
+    ownerId: participant?.ownerId ?? null,
+    ownerName: participant?.owner?.name ?? null,
+    dayVisits: visits.map((v) => ({ start: v.scheduledAt, durationMin: v.durationMin, staffId: v.staffId, name: v.name, participantName: v.participant.fullName })),
+  });
+}
+
 /** Visita com nova data proposta aguardando resposta do participante. */
 export async function findPendingProposal(participantId: string) {
   return db.visit.findFirst({ where: { participantId, proposedAt: { not: null } }, orderBy: { proposedAt: "asc" } });
@@ -100,13 +135,14 @@ export async function findPendingProposal(participantId: string) {
  * Registra a nova data proposta ao participante. A visita continua na data atual até ele confirmar.
  * A janela é a informada pelo Polo Trial: a proposta precisa caber nela.
  */
-export async function proposeVisitDate(visitId: string, when: Date, actor: Actor) {
+/** `byParticipant`: a data foi pedida pelo próprio participante e a equipe só a confirmou. */
+export async function proposeVisitDate(visitId: string, when: Date, actor: Actor, opts: { byParticipant?: boolean } = {}) {
   const visit = await db.visit.findUnique({ where: { id: visitId }, include: { participant: true } });
   if (!visit) throw new DomainError("Visita não encontrada.");
   if (!PROPOSABLE.includes(visit.status)) throw new DomainError("Só é possível propor nova data para visitas com remarcação solicitada ou falta.");
   if (Number.isNaN(when.getTime())) throw new DomainError("Data inválida.");
   if (when.getTime() < Date.now() + 60 * 60_000) throw new DomainError("A nova data precisa estar no futuro (pelo menos 1h a partir de agora).");
-  if ((visit.windowStart && when < visit.windowStart) || (visit.windowEnd && when > visit.windowEnd)) {
+  if (!isWithinWindow(when, visit)) {
     throw new DomainError(`Fora da janela informada pelo Polo Trial (${formatDayMonth(visit.windowStart ?? when)} a ${formatDayMonth(visit.windowEnd ?? when)}).`);
   }
   const updated = await db.visit.update({ where: { id: visitId }, data: { proposedAt: when } });
@@ -114,8 +150,8 @@ export async function proposeVisitDate(visitId: string, when: Date, actor: Actor
     participantId: visit.participantId,
     studyId: visit.studyId,
     type: "VISIT_RESCHEDULE_REQUESTED",
-    title: "Nova data proposta",
-    description: `${visit.name} em ${formatDateTime(when)} — aguardando resposta do participante`,
+    title: opts.byParticipant ? "Nova data pedida pelo participante" : "Nova data proposta",
+    description: `${visit.name} em ${formatDateTime(when)} — ${opts.byParticipant ? "horário livre, confirmado pela equipe" : "aguardando resposta do participante"}`,
     actor,
   });
   await recordAudit({
@@ -124,7 +160,7 @@ export async function proposeVisitDate(visitId: string, when: Date, actor: Actor
     entityType: "Visit",
     entityId: visit.id,
     studyId: visit.studyId,
-    summary: `Nova data proposta para ${visit.name} de ${visit.participant.fullName}: ${formatDateTime(when)}`,
+    summary: `Nova data ${opts.byParticipant ? "pedida pelo participante" : "proposta"} para ${visit.name} de ${visit.participant.fullName}: ${formatDateTime(when)}`,
     metadata: { current: visit.scheduledAt.toISOString(), proposed: when.toISOString(), previousProposal: visit.proposedAt?.toISOString() ?? null },
   });
   return { visit: updated, participant: visit.participant };

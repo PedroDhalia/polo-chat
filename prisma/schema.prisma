@@ -491,6 +491,8 @@ model Communication {
   direction      MessageDirection
   body           String
   templateId     String?
+  /// Mensagem composta de mais de um modelo aprovado (ex.: duas dúvidas): nomes e versões usados.
+  combinedTemplates String?
   status         MessageStatus
   automated      Boolean              @default(false)
   automationKey  String?

@@ -5,7 +5,7 @@ import { Check, CircleCheck, ShieldAlert, Sparkles, ThumbsDown, ThumbsUp, Zap } 
 import { buttonClasses } from "@/components/ui/button";
 import { Spinner, useActionRunner } from "@/components/ui/toast";
 import { useState } from "react";
-import { approveLabel, INTENT_ACTION, INTENT_LABEL, isActionable, isCallReschedule, type AssistIntent } from "@/domain/assist-policy";
+import { approveLabel, INTENT_ACTION, INTENT_LABEL, isActionable, isCallAction, isNewTimeSuggestion, isVisitSlot, type AssistIntent } from "@/domain/assist-policy";
 import Link from "@/components/ui/link";
 import { cn } from "@/lib/cn";
 import type { AssistResult } from "@/server/ai/assist";
@@ -167,12 +167,12 @@ export function AssistPanel({
                       <button type="button" disabled={pending} onClick={() => run(() => approveAssistDecisionAction(decision.id))} className={buttonClasses(intent === "DESCADASTRO" ? "danger" : "primary", "xs")}>
                         {pending ? <Spinner /> : <Check className="size-3.5" />} {approveLabel(intent, decision.action)}
                       </button>
-                      {isCallReschedule(decision.action) && !otherTime && (
+                      {isNewTimeSuggestion(decision.action) && !otherTime && (
                         <button type="button" onClick={() => setOtherTime(true)} className={buttonClasses("subtle", "xs")}>
                           Outro horário
                         </button>
                       )}
-                      {onUseTemplate && suggestedTemplateName && !isCallReschedule(decision.action) && (
+                      {onUseTemplate && suggestedTemplateName && !isCallAction(decision.action) && !isVisitSlot(decision.action) && (
                         <button type="button" onClick={onUseTemplate} className={buttonClasses("subtle", "xs")}>
                           Revisar no envio
                         </button>
@@ -184,7 +184,7 @@ export function AssistPanel({
                   )}
                 </>
               )}
-              {canSend && otherTime && isCallReschedule(decision.action) && (
+              {canSend && otherTime && isNewTimeSuggestion(decision.action) && (
                 <form
                   className="mt-2 flex flex-wrap items-center gap-1.5"
                   onSubmit={(e) => {
@@ -192,14 +192,15 @@ export function AssistPanel({
                     run(() => approveAssistDecisionAction(decision.id, { date, time }), { onSuccess: () => setOtherTime(false) });
                   }}
                 >
-                  <input type="date" required aria-label="Data da ligação" value={date} onChange={(e) => setDate(e.target.value)} className="h-7 rounded-md border-0 bg-surface px-1.5 text-[12px] ring-1 ring-line-strong ring-inset" />
-                  <input type="time" required aria-label="Horário da ligação" step={900} value={time} onChange={(e) => setTime(e.target.value)} className="h-7 rounded-md border-0 bg-surface px-1.5 text-[12px] ring-1 ring-line-strong ring-inset" />
+                  <input type="date" required aria-label={isVisitSlot(decision.action) ? "Data da visita" : "Data da ligação"} value={date} onChange={(e) => setDate(e.target.value)} className="h-7 rounded-md border-0 bg-surface px-1.5 text-[12px] ring-1 ring-line-strong ring-inset" />
+                  <input type="time" required aria-label={isVisitSlot(decision.action) ? "Horário da visita" : "Horário da ligação"} step={900} value={time} onChange={(e) => setTime(e.target.value)} className="h-7 rounded-md border-0 bg-surface px-1.5 text-[12px] ring-1 ring-line-strong ring-inset" />
                   <button type="submit" disabled={pending || !date || !time} className={buttonClasses("primary", "xs")}>
-                    Aprovar este horário
+                    {isVisitSlot(decision.action) ? "Propor este horário" : "Aprovar este horário"}
                   </button>
                   <button type="button" onClick={() => setOtherTime(false)} className={buttonClasses("ghost", "xs")}>
                     Cancelar
                   </button>
+                  {isVisitSlot(decision.action) && <p className="w-full text-[11.5px] text-ink-3">Outro horário vira proposta: o participante confirma e só então a visita muda.</p>}
                 </form>
               )}
               {!isActionable(intent) && <p className="mt-1.5 text-[12px] text-ink-2">Responda pela conversa com um modelo aprovado.</p>}

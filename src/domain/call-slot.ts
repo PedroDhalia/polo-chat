@@ -1,9 +1,10 @@
-// Horário da ligação de pré-triagem combinado pelo WhatsApp — regras simples, sem IA.
+// Dia e horário escritos pelo participante e horário da ligação de pré-triagem — regras simples, sem IA.
 //
-// Usa a preferência que o candidato escreveu ("amanhã de manhã", "depois das 14h", "na sexta")
-// e, sem preferência, o próximo horário livre. Sempre em dia útil, dentro do horário de ligações.
+// `readDayAndTime` lê o que a pessoa escreveu ("amanhã de manhã", "sexta às 10h", "dia 20 às 14h");
+// serve à ligação (aqui) e à remarcação de visita (visit-slot.ts). A ligação usa a preferência ou,
+// sem preferência, o próximo horário livre. Sempre em dia útil, dentro do horário de ligações.
 
-import { addDays, atLocalTime, diffInDays, formatDayMonth, formatTime, localHour, weekdayIndex } from "@/lib/dates";
+import { addDays, atLocalTime, diffInDays, formatDayMonth, formatTime, localHour, parseDateParam, toDateParam, weekdayIndex } from "@/lib/dates";
 
 /** Horário em que a equipe liga para candidatos (dias úteis). */
 export const CALL_HOURS = { start: 9, end: 18 } as const;
@@ -19,17 +20,57 @@ export interface CallSlot {
   preference: string | null;
 }
 
-/**
- * `defaultDay`: dia usado quando a pessoa só fala a hora (ex.: ao remarcar uma ligação,
- * "a partir das 17" vale para o mesmo dia da ligação combinada).
- */
-export function pickCallSlot(text: string, now: Date = new Date(), opts: { defaultDay?: Date } = {}): CallSlot {
+/** Dia e horário que a pessoa escreveu, sem ajustes de agenda. */
+export interface DayAndTime {
+  /** Dias a partir de hoje (0 = hoje); null = não disse o dia. */
+  dayOffset: number | null;
+  /** Dia dito pelo nome da semana ("na sexta"): se já passou hoje, vale o da semana que vem. */
+  byWeekday: boolean;
+  /** Minutos desde 00:00; null = não disse o horário. */
+  minutes: number | null;
+  /** Hora exata ("às 10", "10h", "10:30"); falso para faixas ("depois das 14h") e períodos ("de manhã"). */
+  exact: boolean;
+  /** O que foi entendido (ex.: "sexta-feira, as 10"). */
+  found: string[];
+}
+
+/** Data dita como "16/10" ou "dia 16": a próxima ocorrência, contada a partir de hoje. */
+function readDate(t: string, now: Date): { dayOffset: number; found: string } | null {
+  const [year, month, today] = toDateParam(now).split("-").map(Number);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const at = (y: number, m: number, d: number) => {
+    const s = `${y}-${pad(m)}-${pad(d)}`;
+    const date = parseDateParam(s);
+    return date && toDateParam(date) === s ? date : null; // recusa 31/02 e afins
+  };
+  const full = t.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  if (full) {
+    const d = Number(full[1]);
+    const m = Number(full[2]);
+    const date = at(year, m, d) && diffInDays(at(year, m, d)!, now) >= 0 ? at(year, m, d) : at(year + 1, m, d);
+    return date ? { dayOffset: diffInDays(date, now), found: `${pad(d)}/${pad(m)}` } : null;
+  }
+  const day = t.match(/\bdia\s+(\d{1,2})\b/);
+  if (day) {
+    const d = Number(day[1]);
+    const date = d >= today ? at(year, month, d) : month === 12 ? at(year + 1, 1, d) : at(year, month + 1, d);
+    return date ? { dayOffset: diffInDays(date, now), found: `dia ${d}` } : null;
+  }
+  return null;
+}
+
+export function readDayAndTime(text: string, now: Date = new Date()): DayAndTime {
   const t = norm(text);
   const found: string[] = [];
 
   // Dia pedido.
   let dayOffset: number | null = null;
-  if (/depois de amanha/.test(t)) {
+  let byWeekday = false;
+  const date = readDate(t, now);
+  if (date) {
+    dayOffset = date.dayOffset;
+    found.push(date.found);
+  } else if (/depois de amanha/.test(t)) {
     dayOffset = 2;
     found.push("depois de amanhã");
   } else if (/\bamanha\b/.test(t)) {
@@ -42,20 +83,25 @@ export function pickCallSlot(text: string, now: Date = new Date(), opts: { defau
     const i = WEEKDAYS.findIndex((d) => new RegExp(`\\b${d}\\b`).test(t));
     if (i >= 0) {
       dayOffset = (i - weekdayIndex(now) + 7) % 7;
+      byWeekday = true;
       found.push(WEEKDAY_LABEL[i]);
     }
   }
 
   // Horário pedido: explícito ("às 10h", "10:30", "depois das 14h") ou período do dia.
   let minutes: number | null = null;
+  let exact = false;
   // "a partir das 17", "às 15", "depois das 14h" (com preposição, o "h" é opcional) ou "10h"/"10:30".
   const m =
-    t.match(/(depois das|apos as|a partir das|antes das|\bas|\bdas)\s+(\d{1,2})(?![\d/])(?:\s*(?:h|horas?)\b\s*(\d{2})?|:(\d{2}))?/) ??
-    t.match(/()\b(\d{1,2})(?:\s*(?:h|horas?)\b\s*(\d{2})?|:(\d{2}))/);
+    t.match(/(depois das|apos as|a partir das|antes das|\bas|\bdas)\s+(\d{1,2})(?![\d/])(?:\s*(?:h|horas?)\s*(\d{2})?\b|:(\d{2}))?/) ??
+    t.match(/()\b(\d{1,2})(?:\s*(?:h|horas?)\s*(\d{2})?\b|:(\d{2}))/);
   if (m) {
     let hour = Number(m[2]);
-    if (hour >= 1 && hour <= 6) hour += 12; // "às 3h" = 15h: ninguém pede ligação de madrugada
+    const after = t.slice((m.index ?? 0) + m[0].length);
+    if (hour < 12 && /^\s*(da tarde|da noite)/.test(after)) hour += 12; // "às 3 da tarde"
+    else if (hour >= 1 && hour <= 6) hour += 12; // "às 3h" = 15h: ninguém marca de madrugada
     minutes = hour * 60 + Number(m[3] ?? m[4] ?? 0);
+    exact = m[1] === "" || m[1] === "as" || m[1] === "das";
     if (m[1] === "depois das" || m[1] === "apos as") minutes += 30;
     if (m[1] === "antes das") minutes -= 60;
     found.push(m[0].trim());
@@ -72,9 +118,20 @@ export function pickCallSlot(text: string, now: Date = new Date(), opts: { defau
     minutes = 15 * 60;
     found.push("à tarde");
   } else if (/\bnoite\b/.test(t)) {
-    minutes = CALL_HOURS.end * 60; // último horário de ligações
+    minutes = 18 * 60;
     found.push("à noite");
   }
+  return { dayOffset, byWeekday, minutes, exact, found };
+}
+
+/**
+ * `defaultDay`: dia usado quando a pessoa só fala a hora (ex.: ao remarcar uma ligação,
+ * "a partir das 17" vale para o mesmo dia da ligação combinada).
+ */
+export function pickCallSlot(text: string, now: Date = new Date(), opts: { defaultDay?: Date } = {}): CallSlot {
+  const read = readDayAndTime(text, now);
+  const found = read.found;
+  let { dayOffset, minutes } = read;
   if (minutes !== null) minutes = Math.min(CALL_HOURS.end * 60, Math.max(CALL_HOURS.start * 60, minutes));
   if (dayOffset === null && minutes !== null && opts.defaultDay) dayOffset = Math.max(0, diffInDays(opts.defaultDay, now));
 
@@ -98,6 +155,11 @@ export function pickCallSlot(text: string, now: Date = new Date(), opts: { defau
   while (weekdayIndex(at) >= 5) at = addDays(at, 1); // fim de semana → segunda, mesmo horário
 
   return { at, preference: found.length ? found.join(", ") : null };
+}
+
+/** "sexta-feira, 16/10, às 10:00" — sem "hoje"/"amanhã", para continuar certo quando lido depois. */
+export function dayTimeLabel(at: Date): string {
+  return `${WEEKDAY_LABEL[weekdayIndex(at)]}, ${formatDayMonth(at)}, às ${formatTime(at)}`;
 }
 
 /** "hoje às 15:00", "amanhã às 10:00" ou "na segunda-feira, 13/10, às 10:00". */

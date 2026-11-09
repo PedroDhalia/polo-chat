@@ -123,6 +123,9 @@ export class MockAssistAiAdapter implements AssistAiAdapter {
       return out("CONFIRMACAO", 60, "Confirma, mas também faz uma pergunta: precisa da equipe.", { ambiguous: true });
     }
     if (faq.length === 1) return out("DUVIDA_FREQUENTE", 90, `Pergunta sobre ${faq[0]}.`, { faqTopic: faq[0] });
+    if ((WEAK_YES.test(t) || confirmish) && c.hasScheduledCall && !visitContext) {
+      return out("CONFIRMACAO", 86, "Candidato confirma o horário da ligação de pré-triagem proposto pelo centro.");
+    }
     if (confirmish) {
       return visitContext
         ? out("CONFIRMACAO", typo ? 91 : 92, typo ? "Confirmação com erro de digitação, em resposta à visita." : "Confirmação informal da visita.")

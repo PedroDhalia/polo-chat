@@ -11,6 +11,8 @@ import { Avatar, SourceTag } from "@/components/ui/misc";
 import { Spinner, useActionRunner, useToast } from "@/components/ui/toast";
 import { CONVERSATION_STATUS, PARTICIPANT_STATUS, TASK_PRIORITY, TEMPLATE_CATEGORY, VISIT_CATEGORY, VISIT_STATUS } from "@/domain/labels";
 import { buildTemplateVars, FREE_TEXT_MAX, renderTemplate, SERVICE_WINDOW_HOURS, systemVariablesIn } from "@/domain/templates";
+import { NEW_VISIT_MIN, VISIT_HOURS } from "@/domain/visit-slot";
+import { isWindowClosed } from "@/domain/visit-window";
 import { formatDayMonth, formatRelativeDateTime, formatRelativeDay, formatTime, isSameDay, localHour, parseDateParam, toDateParam } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import type { AssistResult } from "@/server/ai/assist";
@@ -32,6 +34,8 @@ export interface WorkspaceMessage {
   sentAt: Date;
   templateName: string | null;
   templateVersion: number | null;
+  /** Mensagem composta de mais de um modelo aprovado: nomes e versões. */
+  combinedTemplates?: string | null;
   sentByName: string | null;
   automationKey: string | null;
   /** Texto escrito pela equipe, fora dos modelos aprovados. */
@@ -181,7 +185,7 @@ export function ConversationWorkspace(props: WorkspaceProps) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="truncate text-[14px] font-semibold text-ink">{participant.fullName}</span>
-              <StatusBadge map={CONVERSATION_STATUS} value={conversation.status} />
+              {messages.length === 0 ? <Badge tone="neutral">Sem mensagens</Badge> : <StatusBadge map={CONVERSATION_STATUS} value={conversation.status} />}
             </div>
             <div className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">
               <span>WhatsApp (simulado) · {participant.studyCode}</span>
@@ -214,6 +218,11 @@ export function ConversationWorkspace(props: WorkspaceProps) {
         {!visit && permissions.agenda && <ScheduleVisitBar key={participant.id} participantId={participant.id} ownerName={participant.ownerName} notifies={canCompose} now={now} />}
 
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f7f6f2] px-6 py-5 scrollbar-thin">
+          {messages.length === 0 && (
+            <p className="mx-auto mt-6 max-w-sm text-center text-[12.5px] text-ink-3">
+              Nenhuma mensagem ainda. Comece pelo modelo aprovado de primeiro contato do estudo; a resposta do participante aparece aqui.
+            </p>
+          )}
           {visible.map((m, i) => {
             const prev = visible[i - 1];
             const showDay = !prev || !isSameDay(prev.sentAt, m.sentAt);
@@ -481,8 +490,6 @@ export function ConversationWorkspace(props: WorkspaceProps) {
 
 const minutesOf = (d: Date) => localHour(d) * 60 + d.getUTCMinutes();
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-/** Duração considerada para a nova visita ao checar conflitos. */
-const NEW_VISIT_MIN = 60;
 
 /**
  * Agenda do dia escolhido, para checar disponibilidade sem sair da conversa: visitas do dia,
@@ -526,7 +533,7 @@ function DayAvailability({
   const isToday = day ? isSameDay(day, now) : false;
   const free =
     items && ownerName
-      ? Array.from({ length: (17 - 8) * 2 + 1 }, (_, i) => 8 * 60 + i * 30).filter(
+      ? Array.from({ length: (VISIT_HOURS.lastStart - VISIT_HOURS.firstStart) * 2 + 1 }, (_, i) => VISIT_HOURS.firstStart * 60 + i * 30).filter(
           (s) => (!isToday || s > minutesOf(now) + 60) && !items.some((v) => v.staffName === ownerName && overlaps(v, s)),
         )
       : [];
@@ -680,7 +687,7 @@ function VisitBanner({
   const [time, setTime] = useState("09:00");
   const needsNewDate = visit.status === "REAGENDAMENTO_SOLICITADO" || visit.status === "FALTOU";
   const attention = visit.status === "AGUARDANDO_CONFIRMACAO" || needsNewDate || !!visit.proposedAt;
-  const windowClosed = !!visit.windowEnd && visit.windowEnd < now;
+  const windowClosed = isWindowClosed(visit, now);
   const today = toDateParam(now);
   const minDate = visit.windowStart && toDateParam(visit.windowStart) > today ? toDateParam(visit.windowStart) : today;
   const maxDate = visit.windowEnd ? toDateParam(visit.windowEnd) : undefined;
@@ -815,7 +822,7 @@ function MessageBubble({ m }: { m: WorkspaceMessage }) {
           )}
           {out && m.templateName && (
             <span>
-              · Modelo “{m.templateName}”{m.templateVersion ? ` v${m.templateVersion}` : ""}
+              {m.combinedTemplates ? `· Modelos ${m.combinedTemplates}` : <>· Modelo “{m.templateName}”{m.templateVersion ? ` v${m.templateVersion}` : ""}</>}
             </span>
           )}
           {!out && m.intent && (

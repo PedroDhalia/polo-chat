@@ -1,10 +1,11 @@
 import "server-only";
 import type { ConversationStatus, Prisma } from "@prisma/client";
 import { OPEN_TASK_STATUSES } from "@/domain/labels";
-import { addDays, startOfDay } from "@/lib/dates";
+import { startOfDay } from "@/lib/dates";
 import { isActionable } from "@/domain/assist-policy";
 import { analyzeMessage } from "@/server/ai/assist";
 import { getAssistPolicy, getAutomationSettings } from "@/server/services/assist";
+import { findVisitAwaitingNewDate } from "@/server/services/visits";
 import { canAccessStudy, type SessionUser, studyScope } from "@/server/auth/session";
 import { db } from "@/server/db";
 
@@ -68,6 +69,16 @@ export async function listConversations(user: SessionUser, f: { filter?: InboxFi
 
 export type InboxItem = Awaited<ReturnType<typeof listConversations>>["items"][number];
 
+/** Participantes que batem com a busca e ainda não têm conversa (ex.: recém-chegados de formulário). */
+export async function participantsWithoutConversation(user: SessionUser, q: string) {
+  return db.participant.findMany({
+    where: { ...studyScope(user), fullName: { contains: q }, conversations: { none: { channel: "WHATSAPP" } } },
+    select: { id: true, fullName: true, study: { select: { code: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+}
+
 export async function getConversation(user: SessionUser, id: string, now = new Date()) {
   const c = await db.conversation.findUnique({
     where: { id },
@@ -97,14 +108,7 @@ export async function getConversation(user: SessionUser, id: string, now = new D
   const visit =
     (await db.visit.findFirst({ where: { participantId: c.participantId, proposedAt: { not: null } } })) ??
     c.participant.visits[0] ??
-    (await db.visit.findFirst({
-      where: {
-        participantId: c.participantId,
-        status: { in: ["FALTOU", "REAGENDAMENTO_SOLICITADO"] },
-        OR: [{ windowEnd: { gte: now } }, { windowEnd: null, scheduledAt: { gte: addDays(now, -14) } }],
-      },
-      orderBy: { scheduledAt: "desc" },
-    })) ??
+    (await findVisitAwaitingNewDate(c.participantId, now)) ??
     null;
   const lastInbound = [...c.messages].reverse().find((m) => m.direction === "INBOUND") ?? null;
   const lastMessage = c.messages.filter((m) => m.direction !== "INTERNAL_NOTE").at(-1);

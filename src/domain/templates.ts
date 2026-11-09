@@ -25,6 +25,28 @@ export function renderTemplate(body: string, vars: Record<string, string | undef
   return body.replace(/\{\{(\w+)\}\}/g, (match, key: string) => vars[key] ?? match);
 }
 
+const GREETING = /^(ol[aá]|oi|bom dia|boa tarde|boa noite)(?!\p{L})[^!.?]*[!.]\s*/iu;
+const SIGN_OFF = /qualquer d[uú]vida/i;
+
+/**
+ * Junta respostas aprovadas numa mensagem só: a saudação ("Olá, Ana!") fica só na primeira e as
+ * respostas são ligadas por ", e". A que fecha a conversa ("Qualquer dúvida, …") vai por último.
+ * Nada é reescrito além disso: o texto continua sendo o dos modelos aprovados.
+ */
+export function combineAnswers(bodies: string[]): string {
+  const ordered = [...bodies.filter((b) => !SIGN_OFF.test(b)), ...bodies.filter((b) => SIGN_OFF.test(b))];
+  return ordered
+    .map((body, i) => {
+      let s = body.trim();
+      if (i > 0) {
+        s = s.replace(GREETING, "");
+        if (/^\p{Lu}\p{Ll}/u.test(s)) s = s[0].toLowerCase() + s.slice(1); // "Para a visita" → "para a visita" (sigla fica como está)
+      }
+      return i < ordered.length - 1 ? s.replace(/[.!]+$/, "") : s;
+    })
+    .join(", e ");
+}
+
 /** "hoje", "amanhã" ou "dia 10/10". */
 export function visitDateLabel(scheduledAt: Date, now: Date = new Date()): string {
   const diff = diffInDays(scheduledAt, now);

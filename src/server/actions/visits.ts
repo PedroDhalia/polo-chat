@@ -2,6 +2,7 @@
 
 import type { VisitCategory, VisitStatus } from "@prisma/client";
 import { VISIT_CATEGORY } from "@/domain/labels";
+import { isWithinWindow } from "@/domain/visit-window";
 import { addDays, formatTime, parseDateParam, parseLocalDateTime as parseLocal } from "@/lib/dates";
 import { getVisitsInRange } from "@/server/queries/agenda";
 import { visitDateLabel } from "@/domain/templates";
@@ -145,7 +146,7 @@ export async function rescheduleVisitAction(visitId: string, date: string, time:
     const when = parseLocalDateTime(date, time);
     if (when.getTime() < Date.now()) throw new DomainError("A nova data precisa estar no futuro.");
     await rescheduleVisit(visitId, when, userActor(user));
-    const outside = visit.windowEnd && when > visit.windowEnd;
+    const outside = !isWithinWindow(when, visit);
     return {
       message: `Visita de ${visit.participant.fullName} reagendada`,
       details: outside ? ["Atenção: a nova data está fora da janela informada pelo Polo Trial."] : ["Status voltou para “Aguardando confirmação”."],

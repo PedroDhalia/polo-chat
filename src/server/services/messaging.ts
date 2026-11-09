@@ -1,6 +1,6 @@
 import "server-only";
 import type { ConversationStatus, TemplateCategory } from "@prisma/client";
-import { buildTemplateVars, FREE_TEXT_MAX, renderTemplate, SERVICE_WINDOW_HOURS, systemVariablesIn, templateUsesVisit } from "@/domain/templates";
+import { buildTemplateVars, combineAnswers, FREE_TEXT_MAX, renderTemplate, SERVICE_WINDOW_HOURS, systemVariablesIn, templateUsesVisit } from "@/domain/templates";
 import { getIntegrations } from "@/integrations";
 import { diffInDays } from "@/lib/dates";
 import { actorSource, type Actor } from "@/server/actor";
@@ -41,14 +41,23 @@ async function ensureConversation(participantId: string, studyId: string, assign
   });
 }
 
+/** Conversa de WhatsApp do participante, criada vazia se ainda não existe (ex.: primeiro contato com quem veio de formulário). */
+export async function openConversation(participantId: string) {
+  const p = await db.participant.findUnique({ where: { id: participantId } });
+  if (!p) throw new DomainError("Participante não encontrado.");
+  return ensureConversation(p.id, p.studyId, p.ownerId);
+}
+
 /**
  * Envia um modelo APROVADO ao participante (WhatsApp simulado).
  * Bloqueia: modelos não aprovados, modelos de outro estudo e participantes sem consentimento.
+ * Com `templateKeys`, junta vários modelos aprovados numa mensagem só (ex.: resposta a duas dúvidas).
  */
 export async function sendTemplateMessage(input: {
   participantId: string;
   templateKey?: string;
   templateId?: string;
+  templateKeys?: string[];
   visitId?: string | null;
   /** Variáveis que só a automação conhece (ex.: {{ligacao}}). */
   extraVars?: Record<string, string>;
@@ -57,20 +66,27 @@ export async function sendTemplateMessage(input: {
   const participant = await db.participant.findUnique({ where: { id: input.participantId }, include: { study: true } });
   if (!participant) throw new DomainError("Participante não encontrado.");
 
-  const template = await db.messageTemplate.findFirst({
-    where: input.templateId ? { id: input.templateId } : { key: input.templateKey },
-  });
-  if (!template) throw new DomainError("Modelo de mensagem não encontrado.");
-  if (template.approvalStatus !== "APROVADO") throw new DomainError(`O modelo “${template.name}” não está aprovado pelo CEP e não pode ser enviado.`);
-  if (template.studyId && template.studyId !== participant.studyId) throw new DomainError("Este modelo pertence a outro estudo.");
+  const wanted = input.templateKeys?.length ? input.templateKeys.map((key) => ({ key })) : [input.templateId ? { id: input.templateId } : { key: input.templateKey }];
+  const templates = await Promise.all(wanted.map((where) => db.messageTemplate.findFirst({ where })));
+  for (const t of templates) {
+    if (!t) throw new DomainError("Modelo de mensagem não encontrado.");
+    if (t.approvalStatus !== "APROVADO") throw new DomainError(`O modelo “${t.name}” não está aprovado pelo CEP e não pode ser enviado.`);
+    if (t.studyId && t.studyId !== participant.studyId) throw new DomainError("Este modelo pertence a outro estudo.");
+    if (systemVariablesIn(t.body).some((v) => !input.extraVars?.[v])) throw new DomainError(`“${t.name}” é enviado pelo sistema (ligação agendada ou proposta de nova data), não à mão.`);
+  }
+  const used = templates as NonNullable<(typeof templates)[number]>[];
+  const template = used[0];
   if (!(await hasWhatsAppConsent(participant.id))) throw new DomainError(`${participant.fullName} não tem consentimento registrado para contato por WhatsApp.`);
 
-  const visit = input.visitId ? await db.visit.findUnique({ where: { id: input.visitId } }) : templateUsesVisit(template.body) ? await nextActiveVisit(participant.id) : null;
-  if (templateUsesVisit(template.body) && !visit) throw new DomainError("Este modelo exige uma visita agendada.");
-  if (systemVariablesIn(template.body).some((v) => !input.extraVars?.[v])) throw new DomainError(`“${template.name}” é enviado pelo sistema (ligação agendada ou proposta de nova data), não à mão.`);
+  const usesVisit = used.some((t) => templateUsesVisit(t.body));
+  const visit = input.visitId ? await db.visit.findUnique({ where: { id: input.visitId } }) : usesVisit ? await nextActiveVisit(participant.id) : null;
+  if (usesVisit && !visit) throw new DomainError("Este modelo exige uma visita agendada.");
 
   const variables = { ...buildTemplateVars({ participantName: participant.fullName, studyCode: participant.study.code, visitAt: visit?.scheduledAt }), ...input.extraVars };
-  const body = renderTemplate(template.body, variables);
+  const bodies = used.map((t) => renderTemplate(t.body, variables));
+  const body = used.length > 1 ? combineAnswers(bodies) : bodies[0];
+  // Modelos usados, para a trilha (nome e versão): a mensagem combinada só junta textos aprovados.
+  const combinedTemplates = used.length > 1 ? used.map((t) => `“${t.name}” v${t.version}`).join(" + ") : null;
   const result = await getIntegrations().whatsapp.sendTemplate({ to: participant.phone, templateKey: template.key, variables, renderedBody: body });
 
   const conversation = await ensureConversation(participant.id, participant.studyId, participant.ownerId);
@@ -84,6 +100,7 @@ export async function sendTemplateMessage(input: {
       direction: "OUTBOUND",
       body,
       templateId: template.id,
+      combinedTemplates,
       status: result.status === "FAILED" ? "FAILED" : "SENT",
       automated,
       automationKey: input.actor.type === "AUTOMATION" ? input.actor.ruleKey : null,
@@ -106,7 +123,7 @@ export async function sendTemplateMessage(input: {
     participantId: participant.id,
     studyId: participant.studyId,
     type: "MESSAGE_SENT",
-    title: `${template.name} enviado`,
+    title: combinedTemplates ? `Respostas enviadas numa mensagem: ${used.map((t) => t.name).join(" + ")}` : `${template.name} enviado`,
     description: "Modelo aprovado pelo CEP — envio simulado.",
     source: actorSource(input.actor) ?? "WhatsApp",
     actor: input.actor,
@@ -117,8 +134,8 @@ export async function sendTemplateMessage(input: {
     entityType: "Participant",
     entityId: participant.id,
     studyId: participant.studyId,
-    summary: `Modelo “${template.name}” enviado a ${participant.fullName}`,
-    metadata: { templateKey: template.key, templateVersion: template.version, externalId: result.externalId, mode: "mock" },
+    summary: combinedTemplates ? `Modelos ${combinedTemplates} enviados numa mensagem a ${participant.fullName}` : `Modelo “${template.name}” enviado a ${participant.fullName}`,
+    metadata: { templateKey: template.key, templateVersion: template.version, templateKeys: used.map((t) => t.key), externalId: result.externalId, mode: "mock" },
   });
   return { message, template, participant };
 }

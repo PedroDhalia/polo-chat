@@ -97,6 +97,10 @@ export async function ingestLead(lead: NormalizedLead, actor: Actor) {
           { purpose: "CONTATO_WHATSAPP", granted: lead.contactConsent, source: "Formulário de interesse", recordedAt: lead.submittedAt },
         ],
       },
+      // Com consentimento, a conversa já aparece em Comunicação, vazia, pronta para o primeiro contato.
+      conversations: lead.contactConsent
+        ? { create: { studyId: study.id, channel: "WHATSAPP", status: "RESOLVIDA", assignedToId: owner, lastMessageAt: lead.submittedAt } }
+        : undefined,
     },
   });
   await db.externalReference.create({ data: { system: "FORMS", entityType: "Participant", entityId: participant.id, externalId: lead.externalId, lastSyncedAt: new Date() } });
