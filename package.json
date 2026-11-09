@@ -3,12 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "description": "Polo Chat — camada operacional para centros de pesquisa clínica (MVP com dados fictícios)",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "demo": "next build && next start",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "setup": "prisma db push && npm run db:seed",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
@@ -35,9 +41,12 @@
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.0",
     "prisma": "^6.19.3",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
   }
 }
