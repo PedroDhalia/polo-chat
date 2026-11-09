@@ -182,7 +182,7 @@ export function buildDemoData(now: Date) {
   // ── Estudos ──
   const ST = {
     VAC: {
-      id: newId(), code: "VAC-2026", name: "Vacina candidata em adultos", sponsor: "Instituto Butantan",
+      id: newId(), code: "VAC-2026", name: "Vacina candidata em adultos", sponsor: "Instituto Ipê de Vacinas",
       title: "Estudo fase III, randomizado e duplo-cego, de imunogenicidade e segurança de vacina candidata em adultos saudáveis",
       indication: "Imunização de adultos saudáveis", studyType: "Vacina", phase: "Fase III", status: "RECRUTAMENTO_ATIVO",
       targetEnrollment: 500, enrolledCount: 368, screeningCount: 42, sourceSyncedAt: past(0, 6, 0),
