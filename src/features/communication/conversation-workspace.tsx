@@ -141,12 +141,15 @@ export function ConversationWorkspace(props: WorkspaceProps) {
   }, [conversation.id, conversation.unreadCount]);
 
   // Trocar de conversa limpa o rascunho: evita mandar um texto para a pessoa errada.
-  useEffect(() => {
+  // Ajuste durante a renderização (e não em useEffect): o rascunho antigo nunca chega a aparecer na conversa nova.
+  const [draftFor, setDraftFor] = useState(conversation.id);
+  if (draftFor !== conversation.id) {
+    setDraftFor(conversation.id);
     setTemplateId("");
     setMode("template");
     setFreeText("");
     setExpectsReply(true);
-  }, [conversation.id]);
+  }
 
   const selected = templates.find((t) => t.id === templateId) ?? null;
   const preview = useMemo(() => {
@@ -511,15 +514,17 @@ function DayAvailability({
   now: Date;
   excludeVisitId?: string;
 }) {
-  const [items, setItems] = useState<DayAgendaItem[] | null>(null);
+  // A agenda carregada guarda para qual dia ela vale: ao trocar o dia, volta a "carregando" sem setState no efeito.
+  const key = `${date}|${excludeVisitId ?? ""}`;
+  const [loaded, setLoaded] = useState<{ key: string; items: DayAgendaItem[] } | null>(null);
   useEffect(() => {
     let alive = true;
-    setItems(null);
-    dayAgendaAction(date).then((r) => alive && setItems(r.filter((v) => v.id !== excludeVisitId)));
+    dayAgendaAction(date).then((r) => alive && setLoaded({ key, items: r.filter((v) => v.id !== excludeVisitId) }));
     return () => {
       alive = false;
     };
-  }, [date, excludeVisitId]);
+  }, [date, excludeVisitId, key]);
+  const items = loaded?.key === key ? loaded.items : null;
 
   const day = parseDateParam(date);
   const m = time.match(/^(\d{2}):(\d{2})$/);
