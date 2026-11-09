@@ -40,7 +40,7 @@ export async function TemplatesView({ user, studyId }: { user: SessionUser; stud
       <div className="flex items-start gap-3 rounded-xl border border-brand-200 bg-brand-50/60 p-4 text-[13px] text-ink-2">
         <FileCheck2 className="mt-0.5 size-4 shrink-0 text-brand-700" />
         <p>
-          Mensagens a participantes usam apenas <strong className="font-medium text-ink">textos aprovados pelo CEP</strong>. O Plátano Ops preenche somente variáveis operacionais (nome, data, horário, estudo). Modelos em revisão ou rascunho
+          Mensagens a participantes usam apenas <strong className="font-medium text-ink">textos aprovados pelo CEP</strong>. O Polo Chat preenche somente variáveis operacionais (nome, data, horário, estudo). Modelos em revisão ou rascunho
           ficam visíveis, mas não podem ser enviados. Os pareceres exibidos são fictícios.
         </p>
       </div>

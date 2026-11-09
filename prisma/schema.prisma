@@ -1,4 +1,4 @@
-// Plátano Ops — modelo de dados do MVP.
+// Polo Chat — modelo de dados do MVP.
 //
 // Princípios:
 // - Polo Trial é a fonte de dados clínicos/protocolares. Campos marcados como
@@ -435,7 +435,7 @@ model Visit {
   status          VisitStatus
   staffId         String?
   room            String?
-  /// Janela protocolar informada pelo Polo Trial. Nunca calculada no Plátano Ops.
+  /// Janela protocolar informada pelo Polo Trial. Nunca calculada no Polo Chat.
   windowStart     DateTime?
   windowEnd       DateTime?
   rescheduleCount Int           @default(0)

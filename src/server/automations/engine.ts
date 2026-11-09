@@ -318,7 +318,7 @@ async function escalateClinical(p: Participant): Promise<string[]> {
   const task = await createTask(
     {
       title: `Encaminhar relato de ${p.fullName} à equipe médica`,
-      description: "Mensagem via WhatsApp menciona sintomas. Avaliação e registro cabem à equipe médica do estudo, fora do Plátano Ops.",
+      description: "Mensagem via WhatsApp menciona sintomas. Avaliação e registro cabem à equipe médica do estudo, fora do Polo Chat.",
       priority: "ALTA",
       dueAt: new Date(Date.now() + 60 * 60_000),
       studyId: p.studyId,
@@ -636,7 +636,7 @@ export async function scheduleVisitFromTeam(
 /**
  * O participante (ou a equipe, por telefone) aceitou a nova data: a visita muda na agenda e fica
  * confirmada, a confirmação é enviada e fica a pendência de registrar a nova data no Polo Trial
- * (o Plátano Ops não escreve no Polo Trial).
+ * (o Polo Chat não escreve no Polo Trial).
  */
 export async function confirmProposedDate(visitId: string, actor: Actor): Promise<string[]> {
   const { visit, participant, from } = await acceptProposedDate(visitId, actor);

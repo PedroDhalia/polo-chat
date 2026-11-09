@@ -81,7 +81,7 @@ export async function ReportsView({ user, studyId, weeks, periodLabel, channel }
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="Participantes por etapa" description="Situação operacional no Plátano Ops" />
+          <CardHeader title="Participantes por etapa" description="Situação operacional no Polo Chat" />
           <CardBody>
             <BarList items={STATUS_ORDER.map((s) => ({ label: PARTICIPANT_STATUS[s].label, value: byStatus[s] ?? 0, emphasis: s === "INELEGIVEL" || s === "RETIRADO" ? false : undefined }))} />
           </CardBody>

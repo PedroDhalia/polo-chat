@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
-  title: { default: "Plátano Ops", template: "%s · Plátano Ops" },
+  title: { default: "Polo Chat", template: "%s · Polo Chat" },
   description: "Camada operacional para centros de pesquisa clínica — MVP com dados fictícios.",
 };
 

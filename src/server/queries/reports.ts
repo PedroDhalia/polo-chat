@@ -22,7 +22,7 @@ export async function participantsByStatus(user: SessionUser, studyId?: string) 
   return Object.fromEntries(rows.map((r) => [r.status, r._count])) as Partial<Record<ParticipantStatus, number>>;
 }
 
-/** Visitas registradas no Plátano Ops por semana: realizadas × faltas. */
+/** Visitas registradas no Polo Chat por semana: realizadas × faltas. */
 export async function visitsWeekly(user: SessionUser, studyId?: string, weeks = 8, now = new Date()) {
   const first = addDays(startOfWeek(now), -7 * (weeks - 1));
   const visits = await db.visit.findMany({

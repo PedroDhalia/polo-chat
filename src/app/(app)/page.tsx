@@ -256,7 +256,7 @@ export default async function DashboardPage() {
               <div className="flex items-start gap-2.5 text-[12.5px] text-ink-2">
                 <Users className="mt-0.5 size-4 shrink-0 text-ink-3" />
                 <p>
-                  Contagens de triagem e inclusão e as janelas de visita são <strong className="font-medium text-ink">espelhadas do Polo Trial</strong>. O Plátano Ops organiza a operação em torno delas — não as recalcula.
+                  Contagens de triagem e inclusão e as janelas de visita são <strong className="font-medium text-ink">espelhadas do Polo Trial</strong>. O Polo Chat organiza a operação em torno delas — não as recalcula.
                 </p>
               </div>
             </CardBody>

@@ -1,10 +1,10 @@
-# Plátano Ops — MVP
+# Polo Chat — MVP
 
 Camada operacional para centros de pesquisa clínica: **centralizar → organizar → automatizar → acompanhar**.
 
 Este MVP é uma versão navegável, com **dados 100% fictícios**, para demonstrar à equipe do Centro de Pesquisa Plátano como seria ter um único lugar para saber o que está acontecendo nos estudos, quem está em cada etapa, quais visitas se aproximam, quem precisa de contato e o que precisa ser feito.
 
-> **O que o Plátano Ops não é:** não substitui o Polo Trial, não é prontuário eletrônico, eCRF, IRT/IWRS nem repositório de source documents. O Polo Trial continua sendo a fonte dos dados clínicos e protocolares. Janelas de visita e contagens de triagem/inclusão são apenas **espelhadas**, nunca recalculadas.
+> **O que o Polo Chat não é:** não substitui o Polo Trial, não é prontuário eletrônico, eCRF, IRT/IWRS nem repositório de source documents. O Polo Trial continua sendo a fonte dos dados clínicos e protocolares. Janelas de visita e contagens de triagem/inclusão são apenas **espelhadas**, nunca recalculadas.
 
 ---
 
@@ -97,7 +97,7 @@ Entidades: `User`, `StudyMember`, `Study`, `Participant`, `Recruitment`, `Recrui
 
 ### Integrações
 
-Veja [`src/integrations/README.md`](src/integrations/README.md). Nenhuma parte do sistema fala com um sistema externo diretamente: tudo passa por `getIntegrations()`. **Nenhum endpoint do Polo Trial foi assumido.** Os contratos descrevem o que o Plátano Ops precisa receber, e o adapter real será escrito a partir da documentação oficial.
+Veja [`src/integrations/README.md`](src/integrations/README.md). Nenhuma parte do sistema fala com um sistema externo diretamente: tudo passa por `getIntegrations()`. **Nenhum endpoint do Polo Trial foi assumido.** Os contratos descrevem o que o Polo Chat precisa receber, e o adapter real será escrito a partir da documentação oficial.
 
 ### Mensagens a participantes
 
@@ -140,7 +140,7 @@ Quando a visita está com **remarcação solicitada** ou **falta**, o banner da 
 
 1. A equipe escolhe dia e horário. A proposta precisa caber na janela informada pelo Polo Trial (fora dela é bloqueada).
 2. O participante recebe o modelo aprovado "Proposta de nova data" (`{{nova_data}}`, `{{nova_hora}}`) e a conversa fica aguardando resposta. **A visita continua na data antiga**; a agenda mostra "Nova data proposta".
-3. Se ele responde confirmando ("Confirmo"), a assistência aplica (ou deixa na fila, conforme a política): a visita **muda para a nova data já confirmada**, a "Confirmação de agendamento" sai com a nova data, a pendência de reagendamento é encerrada e fica uma pendência para **registrar a nova data no Polo Trial** (o Plátano Ops não escreve no Polo Trial).
+3. Se ele responde confirmando ("Confirmo"), a assistência aplica (ou deixa na fila, conforme a política): a visita **muda para a nova data já confirmada**, a "Confirmação de agendamento" sai com a nova data, a pendência de reagendamento é encerrada e fica uma pendência para **registrar a nova data no Polo Trial** (o Polo Chat não escreve no Polo Trial).
 4. Se ele diz que não pode ("não consigo, pode ser outro dia?"), a proposta cai e a equipe propõe outra.
 5. Combinado por telefone? **Confirmar nova data** no banner faz o mesmo que a confirmação do participante.
 
@@ -208,7 +208,7 @@ eCRF, IRT/IWRS, prontuário, source documents, assinatura digital, integrações
 
 ## Desempenho
 
-- **OneDrive:** a pasta do projeto está dentro do OneDrive. As dependências (`node_modules`, ~20 mil arquivos) e os builds (`.next`) não precisam ser sincronizados, e a sincronização deles consome disco e CPU. O ideal é manter o projeto fora do OneDrive (ex.: `C:\Projetos\platano-ops`); se não for possível, pause a sincronização enquanto usa o sistema.
+- **OneDrive:** a pasta do projeto está dentro do OneDrive. As dependências (`node_modules`, ~20 mil arquivos) e os builds (`.next`) não precisam ser sincronizados, e a sincronização deles consome disco e CPU. O ideal é manter o projeto fora do OneDrive (ex.: `C:\Projetos\polo-chat`); se não for possível, pause a sincronização enquanto usa o sistema.
 - **Cache do modo desenvolvimento desligado:** `next.config.ts` desativa `turbopackFileSystemCacheForDev`, que chegava a ~500 MB em `.next/dev` e era regravado a cada alteração. Fora do OneDrive, pode ser reativado para reinícios mais rápidos.
 - **Sem prefetch automático:** todos os links usam `src/components/ui/link.tsx` (`prefetch={false}`). Antes, abrir e rolar 8 telas disparava 336 renderizações no servidor sem nenhum clique.
 - **Comunicação:** a lista mostra 40 conversas por vez ("Carregar mais") e envia só o início de cada mensagem.

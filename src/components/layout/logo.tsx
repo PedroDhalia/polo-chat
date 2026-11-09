@@ -9,7 +9,7 @@ export function Logo() {
         </svg>
       </span>
       <div className="leading-tight">
-        <div className="text-[15px] font-semibold tracking-tight text-ink">Plátano Ops</div>
+        <div className="text-[15px] font-semibold tracking-tight text-ink">Polo Chat</div>
         <div className="text-[11px] text-ink-3">Centro de Pesquisa Plátano</div>
       </div>
     </div>

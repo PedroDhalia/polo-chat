@@ -50,7 +50,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: SP })
     <Page>
       <PageHeader
         title="Agenda"
-        description="Visitas do dia e da semana com status de confirmação. Nomes de visita e janelas protocolares vêm do Polo Trial — o Plátano Ops não calcula janelas."
+        description="Visitas do dia e da semana com status de confirmação. Nomes de visita e janelas protocolares vêm do Polo Trial — o Polo Chat não calcula janelas."
       />
 
       {alerts.length > 0 && (

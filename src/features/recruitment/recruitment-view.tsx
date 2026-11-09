@@ -111,7 +111,7 @@ export async function RecruitmentView({
         <div className="mb-3 flex items-end justify-between">
           <div>
             <h2 className="text-[15px] font-semibold tracking-tight">Pipeline de candidatos</h2>
-            <p className="text-[13px] text-ink-3">Candidatos em andamento no Plátano Ops, por etapa operacional.</p>
+            <p className="text-[13px] text-ink-3">Candidatos em andamento no Polo Chat, por etapa operacional.</p>
           </div>
           <span className="text-[12.5px] text-ink-3">{pipeline.length} candidatos</span>
         </div>

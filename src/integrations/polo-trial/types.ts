@@ -1,6 +1,6 @@
-// Contrato INTERNO do Plátano Ops para dados vindos do Polo Trial.
+// Contrato INTERNO do Polo Chat para dados vindos do Polo Trial.
 //
-// Importante: este contrato descreve o que o Plátano Ops precisa receber — ele NÃO descreve
+// Importante: este contrato descreve o que o Polo Chat precisa receber — ele NÃO descreve
 // a API do Polo Trial, cujos recursos e endpoints ainda não foram confirmados. O adapter real
 // fará o mapeamento entre a API oficial (quando documentada) e estes tipos.
 
@@ -25,7 +25,7 @@ export interface SourceVisit {
   participantExternalId: string;
   name: string;
   scheduledAt: Date | null;
-  /** Janela protocolar já calculada pelo Polo Trial. O Plátano Ops apenas exibe. */
+  /** Janela protocolar já calculada pelo Polo Trial. O Polo Chat apenas exibe. */
   windowStart: Date | null;
   windowEnd: Date | null;
 }

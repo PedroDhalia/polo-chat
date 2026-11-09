@@ -1,6 +1,6 @@
 # Camada de integrações
 
-Ponto único entre o Plátano Ops e sistemas externos. Nenhuma tela, serviço ou automação
+Ponto único entre o Polo Chat e sistemas externos. Nenhuma tela, serviço ou automação
 chama um sistema externo diretamente: tudo passa por `getIntegrations()`.
 
 | Pasta         | Sistema                        | Estado no MVP |
@@ -12,7 +12,7 @@ chama um sistema externo diretamente: tudo passa por `getIntegrations()`.
 
 ## Regras
 
-1. **Os contratos (`types.ts`) descrevem o que o Plátano Ops precisa**, não a API do sistema
+1. **Os contratos (`types.ts`) descrevem o que o Polo Chat precisa**, não a API do sistema
    externo. Nenhum endpoint do Polo Trial foi assumido. O adapter real fará o mapeamento
    quando houver documentação oficial.
 2. **Polo Trial é a fonte** de dados clínicos e protocolares. Janelas de visita e contagens

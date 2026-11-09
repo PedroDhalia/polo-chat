@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const [studies, channels] = await Promise.all([recruitmentByStudy(user, studyId), getChannelBreakdown(user, { studyId, weeks: 12 })]);
 
   const lines: (string | number)[][] = [
-    ["Relatório de recrutamento — Plátano Ops (dados fictícios)"],
+    ["Relatório de recrutamento — Polo Chat (dados fictícios)"],
     ["Gerado em", formatDate(new Date())],
     [],
     ["Estudo", "Patrocinador", "Status", "Meta", "Incluídos", "Em triagem", "% da meta", "Previstos (plano)", "Situação"],
@@ -34,6 +34,6 @@ export async function GET(request: Request) {
   const csv = "﻿" + lines.map((l) => l.map(csvCell).join(";")).join("\r\n");
   await recordAudit({ actor: { type: "USER", user }, action: "report.exported", entityType: "Report", summary: "Relatório de recrutamento exportado (CSV)" });
   return new Response(csv, {
-    headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="recrutamento-platano-ops.csv"` },
+    headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="recrutamento-polo-chat.csv"` },
   });
 }

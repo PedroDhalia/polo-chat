@@ -628,7 +628,7 @@ export function buildDemoData(now: Date) {
     reminderThread(c, v1.scheduledAt, at(-2, 7), "Confirmo!", 15, "lucas");
     msg(c, { dir: "INBOUND", at: past(0, 8, 40), body: "Bom dia! Desde ontem à noite estou com o braço inchado e um pouco de febre depois da vacina. Isso é normal?" });
     tl(tatiane, "MESSAGE_RECEIVED", "Mensagem com possível relato clínico", past(0, 8, 40), { description: "Classificada pela assistência como possível relato clínico. Encaminhada à coordenação — nenhuma resposta automática.", source: "WhatsApp" });
-    addTask({ title: "Encaminhar relato de Tatiane Ribeiro à equipe médica", description: "Mensagem via WhatsApp menciona sintomas após a vacinação. Avaliação e registro cabem à equipe médica do estudo, fora do Plátano Ops.", priority: "ALTA", dueAt: at(0, 10), p: tatiane, assignee: "camila", source: "COMUNICACAO", auto: "mensagem-clinica", createdAt: past(0, 8, 41) });
+    addTask({ title: "Encaminhar relato de Tatiane Ribeiro à equipe médica", description: "Mensagem via WhatsApp menciona sintomas após a vacinação. Avaliação e registro cabem à equipe médica do estudo, fora do Polo Chat.", priority: "ALTA", dueAt: at(0, 10), p: tatiane, assignee: "camila", source: "COMUNICACAO", auto: "mensagem-clinica", createdAt: past(0, 8, 41) });
     notify("camila", "MESSAGE", "Possível relato clínico — Tatiane Ribeiro (VAC-2026)", past(0, 8, 41), { body: "Mensagem encaminhada para avaliação da equipe médica.", href: "/comunicacao" });
   }
 
@@ -763,7 +763,7 @@ export function buildDemoData(now: Date) {
     tl(henrique, "STATUS_CHANGED", "Incluído no estudo", at(-85, 9), { source: "Polo Trial", actor: "integration" });
     tl(henrique, "CALL_LOGGED", "Pediu para remarcar a V5", at(-2, 16), { description: "Compromisso familiar no dia agendado.", actor: "lucas", source: "Telefone" });
     tl(henrique, "VISIT_RESCHEDULE_REQUESTED", "Remarcação solicitada", at(-2, 16, 5), { actor: "lucas" });
-    addTask({ title: "Janela de visita próxima do limite — Henrique Moraes", description: `A janela da V5 · Dia 85 encerra em ${formatDayMonth(v.windowEnd as Date)} (informação do Polo Trial). O Plátano Ops não calcula janelas — apenas exibe o dado da fonte.`, priority: "ALTA", dueAt: at(1, 18), p: henrique, visit: v, assignee: "camila", source: "POLO_TRIAL", createdAt: past(0, 6, 0) });
+    addTask({ title: "Janela de visita próxima do limite — Henrique Moraes", description: `A janela da V5 · Dia 85 encerra em ${formatDayMonth(v.windowEnd as Date)} (informação do Polo Trial). O Polo Chat não calcula janelas — apenas exibe o dado da fonte.`, priority: "ALTA", dueAt: at(1, 18), p: henrique, visit: v, assignee: "camila", source: "POLO_TRIAL", createdAt: past(0, 6, 0) });
     notify("camila", "VISIT", "Janela de visita próxima do limite — Henrique Moraes", past(0, 6, 0), { body: `V5 · Dia 85 — janela até ${formatDayMonth(v.windowEnd as Date)}`, href: "/pendencias" });
   }
 

@@ -27,7 +27,7 @@ export default async function StudiesPage({ searchParams }: { searchParams: SP }
     <Page>
       <PageHeader
         title="Estudos"
-        description="Visão operacional de cada estudo. Contagens de inclusão e triagem são espelhadas do Polo Trial; o Plátano Ops acompanha o ritmo e a operação em torno delas."
+        description="Visão operacional de cada estudo. Contagens de inclusão e triagem são espelhadas do Polo Trial; o Polo Chat acompanha o ritmo e a operação em torno delas."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <UrlSearch placeholder="Buscar por código, patrocinador ou indicação" className="w-80" />

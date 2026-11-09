@@ -1,8 +1,8 @@
 {
-  "name": "platano-ops",
+  "name": "polo-chat",
   "version": "0.1.0",
   "private": true,
-  "description": "Plátano Ops — camada operacional para centros de pesquisa clínica (MVP com dados fictícios)",
+  "description": "Polo Chat — camada operacional para centros de pesquisa clínica (MVP com dados fictícios)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

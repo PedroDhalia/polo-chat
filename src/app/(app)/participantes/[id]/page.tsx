@@ -249,7 +249,7 @@ export default async function ParticipantPage({ params }: { params: Promise<{ id
             </Card>
           )}
           <p className="text-[12px] text-ink-3">
-            Ficha operacional com dados fictícios. Informações clínicas (eventos adversos, exames, CRF) não são registradas no Plátano Ops. Cadastro {formatDayMonth(p.createdAt)} às {formatTime(p.createdAt)}.
+            Ficha operacional com dados fictícios. Informações clínicas (eventos adversos, exames, CRF) não são registradas no Polo Chat. Cadastro {formatDayMonth(p.createdAt)} às {formatTime(p.createdAt)}.
           </p>
         </div>
       </div>
